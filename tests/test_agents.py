@@ -27,6 +27,9 @@ def sample_state() -> AgentState:
 def mock_llm():
     """Return a mock LLM that returns a simple AIMessage."""
     llm = MagicMock()
+    # Orchestrator calls llm.ainvoke directly (no bind_tools)
+    llm.ainvoke = AsyncMock(return_value=AIMessage(content="Route to architect next."))
+    # Other agents call llm.bind_tools(...).ainvoke
     bound_llm = AsyncMock()
     bound_llm.ainvoke.return_value = AIMessage(content="Route to architect next.")
     llm.bind_tools.return_value = bound_llm
@@ -96,9 +99,7 @@ class TestOrchestratorAgent:
             iteration_count=0,
         )
         # Response doesn't mention any agent (returns None)
-        bound_llm = AsyncMock()
-        bound_llm.ainvoke.return_value = AIMessage(content="No specific agent mentioned.")
-        mock_llm.bind_tools.return_value = bound_llm
+        mock_llm.ainvoke.return_value = AIMessage(content="No specific agent mentioned.")
 
         node = create_orchestrator_agent(mock_llm)
         result = await node(state)
@@ -108,9 +109,7 @@ class TestOrchestratorAgent:
     async def test_routes_to_architect(self, sample_state, mock_llm):
         from src.agents.orchestrator import create_orchestrator_agent
 
-        bound_llm = AsyncMock()
-        bound_llm.ainvoke.return_value = AIMessage(content="Route to architect for design.")
-        mock_llm.bind_tools.return_value = bound_llm
+        mock_llm.ainvoke.return_value = AIMessage(content="Route to architect for design.")
 
         node = create_orchestrator_agent(mock_llm)
         result = await node(sample_state)

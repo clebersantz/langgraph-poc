@@ -8,13 +8,6 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from src.state import AgentRole, AgentState
-from src.tools.github_tools import (
-    add_comment_to_issue,
-    close_issue,
-    create_issue,
-    list_issues,
-    update_issue,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -52,8 +45,10 @@ def create_orchestrator_agent(llm):
         """Orchestrator agent that manages task planning and coordination."""
         logger.info("Orchestrator agent processing, iteration %d", state.iteration_count)
 
-        tools = [create_issue, list_issues, update_issue, close_issue, add_comment_to_issue]
-        agent_llm = llm.bind_tools(tools)
+        # The orchestrator only needs to produce routing text — do NOT bind tools
+        # so that the LLM always returns a text response that can be parsed for
+        # the next_agent. Binding GitHub tools caused Azure OpenAI to return
+        # tool_calls (with empty content) instead of routing text, breaking routing.
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -82,7 +77,7 @@ Respond with your analysis and specify the next_agent (one of: architect, develo
         )
 
         messages = prompt.format_messages(messages=state.messages)
-        response = await agent_llm.ainvoke(messages)
+        response = await llm.ainvoke(messages)
 
         # Parse next agent from response
         next_agent = _parse_next_agent(response.content)
