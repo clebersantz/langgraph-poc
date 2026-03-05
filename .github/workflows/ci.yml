@@ -105,7 +105,30 @@ jobs:
 
       - name: End-to-end agent test — POST hello-world goal to /run
         run: |
-          echo "--- Sending hello-world goal to /run (real LangGraph agent flow) ---"
+          # Determine which API key is needed for the configured provider
+          PROVIDER="${{ vars.LLM_PROVIDER || 'openai' }}"
+          case "$PROVIDER" in
+            azure)
+              KEY="${{ secrets.AZURE_OPENAI_API_KEY }}"
+              KEY_NAME="AZURE_OPENAI_API_KEY"
+              ;;
+            anthropic)
+              KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+              KEY_NAME="ANTHROPIC_API_KEY"
+              ;;
+            *)
+              KEY="${{ secrets.OPENAI_API_KEY }}"
+              KEY_NAME="OPENAI_API_KEY"
+              ;;
+          esac
+
+          if [ -z "$KEY" ]; then
+            echo "⚠️  $KEY_NAME secret is not configured — skipping /run end-to-end test."
+            echo "   To enable: add the $KEY_NAME secret in Settings → Secrets → Actions."
+            exit 0
+          fi
+
+          echo "--- Sending hello-world goal to /run (real LangGraph agent flow, provider=$PROVIDER) ---"
           HTTP_RESPONSE=$(curl -s --max-time 120 -w "\n%{http_code}" -X POST http://localhost:8000/run \
             -H "Content-Type: application/json" \
             -d '{
