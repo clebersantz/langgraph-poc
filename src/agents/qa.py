@@ -82,20 +82,20 @@ def create_qa_agent(llm):
                 HumanMessage(
                     content=f"""
 Project goal: {state.project_goal}
-Workspace: {state.workspace_path}
+Workspace directory (use this for all file operations): {state.workspace_path}
 Current task: {state.current_task.model_dump() if state.current_task else "None"}
 Developer implementation: {state.developer_output.get("implementation", "Not yet implemented")}
 
-Please perform quality assurance:
-1. Review the implementation for correctness
-2. Run existing tests and report results
-3. Write additional tests for uncovered scenarios
-4. Check for edge cases and error handling
-5. Verify requirements are met
-6. Create bug issues for any problems found
-7. Comment on the PR with your assessment (approve or request changes)
+IMPORTANT: You MUST use the available tools to actually create test files and run tests.
+Do NOT just describe what you would do — call the tools to perform the actions.
+Use FULL absolute paths (e.g. `{state.workspace_path}/test_main.py`).
 
-Be thorough in your testing approach.
+Please perform quality assurance:
+1. Use `list_directory` to check what files exist in the workspace
+2. Use `read_file` to review the implementation
+3. Use `create_file` to write test files with full absolute paths
+4. Use `run_command` with working_dir="{state.workspace_path}" to run existing tests
+5. Report the test results
 """
                 ),
             ]

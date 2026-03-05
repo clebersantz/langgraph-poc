@@ -367,4 +367,6 @@ class TestToolExecutionLoop:
         second_call_msgs = captured_messages[1]
         tool_messages = [m for m in second_call_msgs if isinstance(m, ToolMessage)]
         assert tool_messages, "Expected a ToolMessage containing the error"
-        assert "disk full" in tool_messages[0].content or "error" in tool_messages[0].content.lower()
+        assert (
+            "disk full" in tool_messages[0].content or "error" in tool_messages[0].content.lower()
+        )

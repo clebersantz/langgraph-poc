@@ -84,23 +84,23 @@ def create_documentation_agent(llm):
                     content=f"""
 Project goal: {state.project_goal}
 Repository: {state.project_repo}
-Workspace: {state.workspace_path}
+Workspace directory (use this for all file operations): {state.workspace_path}
 Current task: {state.current_task.model_dump() if state.current_task else "None"}
 Architecture: {state.architect_output.get("analysis", "Not yet designed")}
 Implementation: {state.developer_output.get("implementation", "Not yet implemented")}
 QA assessment: {state.qa_output.get("assessment", "Not yet assessed")}
 Security assessment: {state.security_output.get("assessment", "Not yet assessed")}
 
-Please create/update documentation:
-1. README.md with overview, installation, and usage instructions
-2. API documentation if applicable
-3. Architecture overview document
-4. Deployment guide (including Docker instructions)
-5. CHANGELOG.md entry for this change
-6. Inline code documentation review
-7. Update any existing outdated docs
+IMPORTANT: You MUST use the `create_file` tool to write documentation files.
+Do NOT just describe what you would do — call the tools to perform the actions.
+Use FULL absolute paths (e.g. `{state.workspace_path}/README.md`).
 
-Commit documentation changes to the repository.
+Please create/update documentation:
+1. README.md — overview, installation, and usage instructions
+2. API documentation if applicable
+3. Architecture overview if not already present
+
+Only commit to git if a repository URL is provided and the goal requires version control.
 """
                 ),
             ]
