@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     azure_openai_api_key: SecretStr = Field(default=SecretStr(""), alias="AZURE_OPENAI_API_KEY")
     azure_openai_base_url: str = Field(default="", alias="AZURE_OPENAI_BASE_URL")
     azure_openai_api_version: str = Field(default="2024-02-01", alias="AZURE_OPENAI_API_VERSION")
+    # Optional explicit deployment name; falls back to llm_model when not set.
+    # Set AZURE_OPENAI_DEPLOYMENT if your deployment name differs from the model name.
+    azure_openai_deployment: str = Field(default="", alias="AZURE_OPENAI_DEPLOYMENT")
 
     # GitHub settings
     github_token: SecretStr = Field(default=SecretStr(""), alias="GITHUB_TOKEN")

@@ -25,11 +25,28 @@ def _create_llm():
     """Instantiate the LLM based on settings."""
     settings = get_settings()
     if settings.llm_provider == "azure":
+        api_key = settings.azure_openai_api_key.get_secret_value()
+        base_url = settings.azure_openai_base_url
+        # Deployment name: use explicit override (strip whitespace), or fall back to the model name.
+        deployment = settings.azure_openai_deployment.strip() or settings.llm_model
+
+        # New Azure AI Foundry / AI Services endpoints expose an OpenAI-compatible
+        # "/v1/" path. Using AzureChatOpenAI with these URLs would double-prefix
+        # "/openai/" in the path, causing 404s. Use ChatOpenAI with base_url instead.
+        if "/v1/" in base_url:
+            return ChatOpenAI(
+                model=deployment,
+                api_key=api_key,
+                base_url=base_url,
+                temperature=settings.llm_temperature,
+            )
+
+        # Traditional Azure OpenAI endpoint: https://<resource>.openai.azure.com/
         return AzureChatOpenAI(
-            azure_endpoint=settings.azure_openai_base_url,
-            api_key=settings.azure_openai_api_key.get_secret_value(),
+            azure_endpoint=base_url,
+            api_key=api_key,
             api_version=settings.azure_openai_api_version,
-            azure_deployment=settings.llm_model,
+            azure_deployment=deployment,
             temperature=settings.llm_temperature,
         )
     if settings.llm_provider == "anthropic":
