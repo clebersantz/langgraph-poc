@@ -103,14 +103,15 @@ class ChatResponse(BaseModel):
 
 def _extract_repo_url(text: str) -> str:
     """Extract the first GitHub repository URL found in *text*."""
-    match = re.search(r"https?://github\.com/[^\s/]+/[^\s/]+", text)
+    match = re.search(r"https?://github\.com/[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+", text)
     return match.group(0) if match else ""
 
 
 def _extract_branch(text: str) -> str:
     """Extract a branch name from *text*, defaulting to 'main'."""
     patterns = [
-        r"\bbranch[:\s]+([a-zA-Z0-9_/.-]+)",
+        r"\bbranch:\s*([a-zA-Z0-9_/.-]+)",
+        r"\bbranch\s+([a-zA-Z0-9_/.-]+)",
         r"\bon\s+([a-zA-Z0-9_/.-]+)\s+branch",
     ]
     for pattern in patterns:

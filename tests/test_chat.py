@@ -79,7 +79,7 @@ class TestChatEndpoint:
 
     @pytest.fixture
     def client(self):
-        return TestClient(app, raise_server_exceptions=False)
+        return TestClient(app)
 
     @patch("src.main.build_graph")
     def test_chat_returns_session_id(self, mock_build_graph, client):
