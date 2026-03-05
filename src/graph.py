@@ -25,7 +25,7 @@ def _create_llm():
     """Instantiate the LLM based on settings."""
     settings = get_settings()
     if settings.llm_provider == "azure":
-        api_key = settings.azure_openai_api_key.get_secret_value()
+        api_key = settings.azure_openai_api_key.get_secret_value() or None
         base_url = settings.azure_openai_base_url
         # Deployment name: use explicit override (strip whitespace), or fall back to the model name.
         deployment = settings.azure_openai_deployment.strip() or settings.llm_model
