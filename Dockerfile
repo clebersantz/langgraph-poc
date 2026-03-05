@@ -17,12 +17,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# Ensure SSL certificates are readable by non-root users.
-# chmod may be restricted in some environments; copying to a world-readable
-# path under /etc/ssl is a reliable alternative.
-RUN chmod 755 /etc/ssl/certs 2>/dev/null || true \
-    && cp -rp /etc/ssl/certs /usr/local/share/ca-certificates \
-    && chmod -R 755 /usr/local/share/ca-certificates
+# Ensure SSL certificates are readable by the non-root agent user.
+# The base image's /etc/ssl/certs directory has mode 700 (root-only), so we
+# copy the CA bundle directly to a world-readable path and point the SSL env
+# vars there. This prevents [Errno 2] / [Errno 13] errors on HTTPS/LLM calls.
+RUN mkdir -p /usr/local/share/ca-certificates \
+    && cp /etc/ssl/certs/ca-certificates.crt /usr/local/share/ca-certificates/ca-certificates.crt \
+    && chmod 644 /usr/local/share/ca-certificates/ca-certificates.crt
 
 # Copy source code
 COPY src/ ./src/

@@ -111,20 +111,29 @@ jobs:
             azure)
               KEY="${{ secrets.AZURE_OPENAI_API_KEY }}"
               KEY_NAME="AZURE_OPENAI_API_KEY"
+              BASE_URL="${{ vars.AZURE_OPENAI_BASE_URL }}"
               ;;
             anthropic)
               KEY="${{ secrets.ANTHROPIC_API_KEY }}"
               KEY_NAME="ANTHROPIC_API_KEY"
+              BASE_URL=""
               ;;
             *)
               KEY="${{ secrets.OPENAI_API_KEY }}"
               KEY_NAME="OPENAI_API_KEY"
+              BASE_URL=""
               ;;
           esac
 
           if [ -z "$KEY" ]; then
             echo "⚠️  $KEY_NAME secret is not configured — skipping /run end-to-end test."
             echo "   To enable: add the $KEY_NAME secret in Settings → Secrets → Actions."
+            exit 0
+          fi
+
+          if [ "$PROVIDER" = "azure" ] && [ -z "$BASE_URL" ]; then
+            echo "⚠️  AZURE_OPENAI_BASE_URL variable is not configured — skipping /run end-to-end test."
+            echo "   To enable: add AZURE_OPENAI_BASE_URL in Settings → Variables → Actions."
             exit 0
           fi
 
