@@ -18,9 +18,16 @@ class Settings(BaseSettings):
     # LLM settings
     openai_api_key: SecretStr = Field(default=SecretStr(""), alias="OPENAI_API_KEY")
     anthropic_api_key: SecretStr = Field(default=SecretStr(""), alias="ANTHROPIC_API_KEY")
-    llm_provider: Literal["openai", "anthropic"] = Field(default="openai", alias="LLM_PROVIDER")
+    llm_provider: Literal["openai", "anthropic", "azure"] = Field(
+        default="openai", alias="LLM_PROVIDER"
+    )
     llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")
     llm_temperature: float = Field(default=0.1, alias="LLM_TEMPERATURE")
+
+    # Azure OpenAI settings (used when LLM_PROVIDER=azure)
+    azure_openai_api_key: SecretStr = Field(default=SecretStr(""), alias="AZURE_OPENAI_API_KEY")
+    azure_openai_base_url: str = Field(default="", alias="AZURE_OPENAI_BASE_URL")
+    azure_openai_api_version: str = Field(default="2024-02-01", alias="AZURE_OPENAI_API_VERSION")
 
     # GitHub settings
     github_token: SecretStr = Field(default=SecretStr(""), alias="GITHUB_TOKEN")

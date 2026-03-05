@@ -64,12 +64,17 @@ jobs:
           docker run -d \
             --name langgraph-ci-smoke \
             -p 8000:8000 \
-            -e OPENAI_API_KEY=placeholder \
-            -e ANTHROPIC_API_KEY=placeholder \
+            -e LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openai' }} \
+            -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
+            -e ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
+            -e AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }} \
+            -e AZURE_OPENAI_BASE_URL=${{ vars.AZURE_OPENAI_BASE_URL }} \
             -e GITHUB_TOKEN=placeholder \
             -e GITHUB_OWNER=placeholder \
             -e GITHUB_REPO=placeholder \
             langgraph-multi-agent:ci
+          # Only the key matching LLM_PROVIDER is used at runtime;
+          # unset secrets expand to empty strings and are safely ignored.
 
           echo "Waiting for langgraph-poc to be ready..."
           for i in $(seq 1 15); do
@@ -98,27 +103,62 @@ jobs:
           fi
           echo "✅ All 6 agents registered"
 
-      - name: Git smoke test — create Python hello-world project and commit inside container
+      - name: End-to-end agent test — POST hello-world goal to /run
         run: |
-          docker exec langgraph-ci-smoke bash -c '
-            set -e
-            WORKDIR=$(mktemp -d /tmp/hello-world-XXXXXX)
-            cd "$WORKDIR"
+          echo "--- Sending hello-world goal to /run (real LangGraph agent flow) ---"
+          HTTP_RESPONSE=$(curl -s --max-time 120 -w "\n%{http_code}" -X POST http://localhost:8000/run \
+            -H "Content-Type: application/json" \
+            -d '{
+              "goal": "Create a minimal Python hello-world project: write a main.py that prints Hello World, initialise a git repository, and commit the file.",
+              "max_iterations": 3
+            }')
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$HTTP_RESPONSE" | head -n-1)
 
-            # Write a minimal Python hello-world script
-            echo "print(\"Hello, World!\")" > hello.py
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ /run returned HTTP $HTTP_CODE"
+            echo "$RESPONSE"
+            exit 1
+          fi
+          echo "$RESPONSE" | python3 -m json.tool
 
-            # Verify the script runs correctly
-            python3 hello.py
+          STATUS=$(echo "$RESPONSE" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('status', 'MISSING'))
+except Exception as e:
+    print(f'PARSE_ERROR:{e}')
+")
+          if [ "$STATUS" != "completed" ]; then
+            echo "❌ Expected status=completed, got: $STATUS"
+            exit 1
+          fi
+          echo "✅ Workflow status: $STATUS"
 
-            # Initialise git repo, stage, and commit (no push required)
-            git init
-            git add hello.py
-            git commit -m "feat: add hello-world Python script"
+          ERRORS=$(echo "$RESPONSE" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(len(d.get('errors', [])))
+except Exception as e:
+    print(f'PARSE_ERROR:{e}')
+")
+          if [ "$ERRORS" != "0" ]; then
+            echo "❌ Expected no errors, got: $ERRORS"
+            exit 1
+          fi
+          echo "✅ No workflow errors"
 
-            echo "git commit succeeded"
-            git log --oneline
-          '
+          ITERATIONS=$(echo "$RESPONSE" | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    print(d.get('iterations', 0))
+except Exception as e:
+    print(f'PARSE_ERROR:{e}')
+")
+          echo "✅ Completed in $ITERATIONS iteration(s)"
 
       - name: Show container logs and clean up
         if: always()

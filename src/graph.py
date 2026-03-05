@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from langchain_anthropic import ChatAnthropic
-from langchain_openai import ChatOpenAI
+from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -24,6 +24,14 @@ logger = logging.getLogger(__name__)
 def _create_llm():
     """Instantiate the LLM based on settings."""
     settings = get_settings()
+    if settings.llm_provider == "azure":
+        return AzureChatOpenAI(
+            azure_endpoint=settings.azure_openai_base_url,
+            api_key=settings.azure_openai_api_key.get_secret_value(),
+            api_version=settings.azure_openai_api_version,
+            azure_deployment=settings.llm_model,
+            temperature=settings.llm_temperature,
+        )
     if settings.llm_provider == "anthropic":
         return ChatAnthropic(
             model=settings.llm_model,
