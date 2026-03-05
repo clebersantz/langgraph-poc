@@ -7,6 +7,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from src.agents._tool_executor import run_tool_loop
 from src.state import AgentRole, AgentState
 from src.tools.code_tools import create_file, list_directory, read_file, run_command
 from src.tools.git_tools import commit_changes, get_diff, push_changes
@@ -106,7 +107,7 @@ Commit documentation changes to the repository.
         )
 
         messages = prompt.format_messages(messages=state.messages)
-        response = await agent_llm.ainvoke(messages)
+        response = await run_tool_loop(agent_llm, tools, messages)
 
         documentation_output = {
             "documentation": response.content,

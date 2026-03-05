@@ -7,6 +7,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from src.agents._tool_executor import run_tool_loop
 from src.state import AgentRole, AgentState
 from src.tools.code_tools import create_file, list_directory, read_file
 from src.tools.git_tools import clone_repository, create_branch, pull_changes
@@ -90,7 +91,7 @@ Document your design decisions clearly.
         )
 
         messages = prompt.format_messages(messages=state.messages)
-        response = await agent_llm.ainvoke(messages)
+        response = await run_tool_loop(agent_llm, tools, messages)
 
         architect_output = {
             "analysis": response.content,
