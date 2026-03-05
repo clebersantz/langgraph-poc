@@ -7,6 +7,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from src.agents._tool_executor import _workspace_is_empty, extract_files_from_content, run_tool_loop
 from src.state import AgentRole, AgentState
 from src.tools.code_tools import create_file, list_directory, read_file, run_command
 from src.tools.git_tools import (
@@ -88,19 +89,31 @@ def create_developer_agent(llm):
                     content=f"""
 Project goal: {state.project_goal}
 Repository: {state.project_repo}
-Workspace: {state.workspace_path}
+Workspace directory (use this for all file operations): {state.workspace_path}
 Current branch: {state.project_branch}
 Current task: {state.current_task.model_dump() if state.current_task else "None"}
 Architecture design: {state.architect_output.get("analysis", "Not yet designed")}
 
-Please implement the required changes:
-1. Clone/update the repository if needed
-2. Create a feature branch
-3. Implement the code changes
-4. Run tests to verify
-5. Commit with descriptive messages
-6. Push to remote and open a PR
-7. Update the relevant GitHub issue
+IMPORTANT: You MUST use the available tools to actually create, read, and run files.
+Do NOT just describe what you would do — call the tools to perform the actions.
+
+Steps for this task:
+1. Use the `create_file` tool to write every source file with its FULL absolute path
+   (e.g. `{state.workspace_path}/main.py`). Never use relative paths.
+2. Use `run_command` with working_dir="{state.workspace_path}" to install deps, run tests, etc.
+3. Use `read_file` to verify file contents after creation.
+4. Only use git tools (clone, commit, push, PR) if a repository URL is provided and the
+   goal explicitly requires version control. Otherwise skip git steps entirely.
+
+If you cannot call tools, you MUST respond with a ```json code block containing ALL files:
+{{
+  "files": [
+    {{"path": "main.py", "content": "complete file content"}},
+    {{"path": "test_main.py", "content": "complete file content"}},
+    {{"path": "README.md", "content": "complete file content"}}
+  ],
+  "summary": "brief description"
+}}
 
 Be thorough and write production-quality code.
 """
@@ -109,7 +122,16 @@ Be thorough and write production-quality code.
         )
 
         messages = prompt.format_messages(messages=state.messages)
-        response = await agent_llm.ainvoke(messages)
+        response = await run_tool_loop(agent_llm, tools, messages)
+
+        # Fallback: if no files were created via tool_calls, extract them from the
+        # LLM response text.  The prompt asks for JSON output when tools can't be
+        # called, so we look for a ```json block first, then bold-filename headers.
+        if state.workspace_path and _workspace_is_empty(state.workspace_path):
+            text = response.content if isinstance(response.content, str) else ""
+            created = extract_files_from_content(text, state.workspace_path)
+            if created:
+                logger.info("Developer: fallback extracted %d file(s): %s", len(created), created)
 
         developer_output = {
             "implementation": response.content,

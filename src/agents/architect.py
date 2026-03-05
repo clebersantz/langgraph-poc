@@ -7,6 +7,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from src.agents._tool_executor import run_tool_loop
 from src.state import AgentRole, AgentState
 from src.tools.code_tools import create_file, list_directory, read_file
 from src.tools.git_tools import clone_repository, create_branch, pull_changes
@@ -71,17 +72,18 @@ def create_architect_agent(llm):
                     content=f"""
 Project goal: {state.project_goal}
 Repository: {state.project_repo}
-Workspace: {state.workspace_path}
+Workspace directory (use this for all file operations): {state.workspace_path}
 Current task: {state.current_task.model_dump() if state.current_task else "None"}
 
-Please analyze the project requirements and produce:
-1. System architecture overview
-2. Component breakdown
-3. Technology stack recommendations
-4. API specifications (if applicable)
-5. Data models
-6. Infrastructure requirements
-7. Implementation plan for the Developer agent
+Please analyze the project requirements and produce an implementation plan.
+If it is useful to document the architecture, use `create_file` with a full absolute path
+(e.g. `{state.workspace_path}/ARCHITECTURE.md`) to write it.
+
+Your analysis should cover:
+1. Component breakdown and responsibilities
+2. Technology stack recommendations
+3. File/module structure with concrete filenames
+4. Implementation steps for the Developer agent (be specific about filenames and paths)
 
 Document your design decisions clearly.
 """
@@ -90,7 +92,7 @@ Document your design decisions clearly.
         )
 
         messages = prompt.format_messages(messages=state.messages)
-        response = await agent_llm.ainvoke(messages)
+        response = await run_tool_loop(agent_llm, tools, messages)
 
         architect_output = {
             "analysis": response.content,

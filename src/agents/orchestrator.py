@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
+import json as _json
 import logging
+import re as _re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 from src.state import AgentRole, AgentState
-from src.tools.github_tools import (
-    add_comment_to_issue,
-    close_issue,
-    create_issue,
-    list_issues,
-    update_issue,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +23,21 @@ Your responsibilities:
    - QA: Testing, quality assurance, test case creation
    - Security: Security analysis, vulnerability assessment, threat modeling
    - Documentation: Writing docs, README, API docs, changelogs
-3. Manage GitHub issues and track progress
-4. Coordinate between agents, resolve blockers
-5. Determine when the project goal is complete
+3. Coordinate between agents, resolve blockers
+4. Determine when the project goal is complete
 
 When analyzing a request:
 - Break it down into clear, prioritized tasks
 - Identify dependencies between tasks
 - Assign tasks to the right agent
-- Track GitHub issues for each task
 - Ensure all agents complete their work before declaring success
 
-You have access to GitHub issue management tools to track work.
-
-Always respond with a clear plan in JSON format when decomposing tasks, and clearly state which agent should work next.
+Always respond with a JSON object specifying the next_agent value:
+{
+  "analysis": "your analysis here",
+  "tasks": [...],
+  "next_agent": "developer"   ← one of: architect, developer, qa, security, documentation, or DONE
+}
 """
 
 
@@ -52,8 +48,10 @@ def create_orchestrator_agent(llm):
         """Orchestrator agent that manages task planning and coordination."""
         logger.info("Orchestrator agent processing, iteration %d", state.iteration_count)
 
-        tools = [create_issue, list_issues, update_issue, close_issue, add_comment_to_issue]
-        agent_llm = llm.bind_tools(tools)
+        # The orchestrator only needs to produce routing text — do NOT bind tools
+        # so that the LLM always returns a text response that can be parsed for
+        # the next_agent. Binding GitHub tools caused Azure OpenAI to return
+        # tool_calls (with empty content) instead of routing text, breaking routing.
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -82,7 +80,7 @@ Respond with your analysis and specify the next_agent (one of: architect, develo
         )
 
         messages = prompt.format_messages(messages=state.messages)
-        response = await agent_llm.ainvoke(messages)
+        response = await llm.ainvoke(messages)
 
         # Parse next agent from response
         next_agent = _parse_next_agent(response.content)
@@ -108,8 +106,46 @@ Respond with your analysis and specify the next_agent (one of: architect, develo
 
 
 def _parse_next_agent(content: str) -> str | None:
-    """Extract the next agent name from the orchestrator's response."""
+    """Extract the next agent name from the orchestrator's response.
+
+    Parsing order:
+    1. JSON ``"next_agent"`` field (most reliable — LLM often returns JSON).
+    2. Explicit ``next_agent: <value>`` key-value pattern (text format).
+    3. Keyword scan — checks ``done``/``complete`` *before* agent names so that
+       a response like "The developer finished; project is DONE" terminates the
+       loop rather than routing back to developer.
+    """
     content_lower = content.lower()
+
+    # ── 1. JSON "next_agent" field ───────────────────────────────────────────
+    # Try the whole content first, then fall back to individual JSON objects.
+    for candidate in [content] + _re.findall(r"\{[^{}]+\}", content, _re.DOTALL):
+        try:
+            data = _json.loads(candidate)
+            agent = str(data.get("next_agent", "")).lower().strip()
+            if agent:
+                if agent in ("done", "complete", "finished"):
+                    return "done"
+                for role in AgentRole:
+                    if agent == role.value:
+                        return role.value
+        except (ValueError, KeyError, TypeError):
+            pass
+
+    # ── 2. Explicit key-value pattern ────────────────────────────────────────
+    m = _re.search(r"next[_\s]agent[\"'\s:]+([a-z_]+)", content_lower)
+    if m:
+        agent = m.group(1).strip()
+        if agent in ("done", "complete", "finished"):
+            return "done"
+        for role in AgentRole:
+            if agent == role.value:
+                return role.value
+
+    # ── 3. Keyword scan (done/complete checked first) ────────────────────────
+    if _re.search(r"\b(done|complete|finished|all\s+tasks?\s+complete)\b", content_lower):
+        return "done"
+
     agent_keywords = {
         "architect": AgentRole.ARCHITECT,
         "developer": AgentRole.DEVELOPER,
@@ -117,10 +153,9 @@ def _parse_next_agent(content: str) -> str | None:
         "quality assurance": AgentRole.QA,
         "security": AgentRole.SECURITY,
         "documentation": AgentRole.DOCUMENTATION,
-        "done": "done",
-        "complete": "done",
     }
     for keyword, role in agent_keywords.items():
         if keyword in content_lower:
-            return role if isinstance(role, str) else role.value
+            return role.value
+
     return None

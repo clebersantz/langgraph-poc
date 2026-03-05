@@ -7,6 +7,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from src.agents._tool_executor import _workspace_is_empty, extract_files_from_content, run_tool_loop
 from src.state import AgentRole, AgentState
 from src.tools.code_tools import create_file, list_directory, read_file, run_command
 from src.tools.git_tools import clone_repository, commit_changes, get_diff, push_changes
@@ -81,27 +82,34 @@ def create_qa_agent(llm):
                 HumanMessage(
                     content=f"""
 Project goal: {state.project_goal}
-Workspace: {state.workspace_path}
+Workspace directory (use this for all file operations): {state.workspace_path}
 Current task: {state.current_task.model_dump() if state.current_task else "None"}
 Developer implementation: {state.developer_output.get("implementation", "Not yet implemented")}
 
-Please perform quality assurance:
-1. Review the implementation for correctness
-2. Run existing tests and report results
-3. Write additional tests for uncovered scenarios
-4. Check for edge cases and error handling
-5. Verify requirements are met
-6. Create bug issues for any problems found
-7. Comment on the PR with your assessment (approve or request changes)
+IMPORTANT: You MUST use the available tools to actually create test files and run tests.
+Do NOT just describe what you would do — call the tools to perform the actions.
+Use FULL absolute paths (e.g. `{state.workspace_path}/test_main.py`).
 
-Be thorough in your testing approach.
+Please perform quality assurance:
+1. Use `list_directory` to check what files exist in the workspace
+2. Use `read_file` to review the implementation
+3. Use `create_file` to write test files with full absolute paths
+4. Use `run_command` with working_dir="{state.workspace_path}" to run existing tests
+5. Report the test results
 """
                 ),
             ]
         )
 
         messages = prompt.format_messages(messages=state.messages)
-        response = await agent_llm.ainvoke(messages)
+        response = await run_tool_loop(agent_llm, tools, messages)
+
+        # Fallback: extract files from text response if workspace is still empty.
+        if state.workspace_path and _workspace_is_empty(state.workspace_path):
+            text = response.content if isinstance(response.content, str) else ""
+            created = extract_files_from_content(text, state.workspace_path)
+            if created:
+                logger.info("QA: fallback extracted %d file(s): %s", len(created), created)
 
         qa_output = {
             "assessment": response.content,
