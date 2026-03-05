@@ -170,11 +170,11 @@ jobs:
           fi
 
           echo "--- Sending hello-world goal to /run (real LangGraph agent flow, provider=$PROVIDER) ---"
-          HTTP_RESPONSE=$(curl -s --max-time 120 -w "\n%{http_code}" -X POST http://localhost:8000/run \
+          HTTP_RESPONSE=$(curl -s --max-time 300 -w "\n%{http_code}" -X POST http://localhost:8000/run \
             -H "Content-Type: application/json" \
             -d '{
-              "goal": "Create a minimal Python hello-world project: write a main.py that prints Hello World, initialise a git repository, and commit the file.",
-              "max_iterations": 3
+              "goal": "Create a minimal Python hello-world project in the workspace: (1) write main.py that prints exactly Hello, World! when executed, (2) write test_main.py with a pytest test that captures stdout and asserts the output contains Hello, World!, (3) write README.md with a short project description and usage instructions. Do not use git or GitHub — just create the three files directly in the workspace directory.",
+              "max_iterations": 5
             }')
           HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
           RESPONSE=$(echo "$HTTP_RESPONSE" | head -n-1)
@@ -202,6 +202,59 @@ jobs:
 
           ITERATIONS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('iterations',0))" 2>&1 || echo "PARSE_ERROR")
           echo "✅ Completed in $ITERATIONS iteration(s)"
+
+          RUN_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('run_id',''))" 2>&1 || echo "")
+          echo "Run ID: $RUN_ID"
+
+          # ── Verify workspace files via the /run/{run_id}/files API ──────────────
+          echo "--- Checking workspace files via /run/$RUN_ID/files ---"
+          FILES_RESPONSE=$(curl -sf http://localhost:8000/run/$RUN_ID/files)
+          echo "$FILES_RESPONSE" | python3 -m json.tool
+
+          FILES_LIST=$(echo "$FILES_RESPONSE" | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin).get('files', [])))")
+          echo "Files in workspace:"
+          echo "$FILES_LIST"
+
+          # Check main.py was created
+          if echo "$FILES_LIST" | grep -qi "main\.py"; then
+            echo "✅ main.py was created"
+          else
+            echo "❌ main.py was NOT found in workspace"
+            exit 1
+          fi
+
+          # Check a test file was created
+          if echo "$FILES_LIST" | grep -qiE "test.*\.py|\.py.*test"; then
+            echo "✅ test file was created"
+          else
+            echo "❌ No test file (test_*.py) found in workspace"
+            exit 1
+          fi
+
+          # Check a documentation file was created
+          if echo "$FILES_LIST" | grep -qiE "\.md$|\.txt$|readme"; then
+            echo "✅ documentation file was created"
+          else
+            echo "❌ No documentation file (.md / README) found in workspace"
+            exit 1
+          fi
+
+          # ── Run the generated main.py and verify its output ──────────────────────
+          echo "--- Running the generated main.py inside the container ---"
+          MAIN_PY_PATH=$(echo "$FILES_LIST" | grep -i "main\.py" | head -n1)
+          WORKSPACE_PATH=$(echo "$FILES_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('workspace_path',''))")
+          FULL_MAIN="$WORKSPACE_PATH/$MAIN_PY_PATH"
+          echo "Executing: python3 $FULL_MAIN"
+
+          PROGRAM_OUTPUT=$(docker exec langgraph-ci-smoke python3 "$FULL_MAIN" 2>&1)
+          echo "Program output: $PROGRAM_OUTPUT"
+
+          if echo "$PROGRAM_OUTPUT" | grep -qi "hello"; then
+            echo "✅ main.py prints a Hello message"
+          else
+            echo "❌ main.py output does not contain 'Hello': $PROGRAM_OUTPUT"
+            exit 1
+          fi
 
       - name: Show container logs and clean up
         if: always()
