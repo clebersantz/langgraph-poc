@@ -7,7 +7,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from src.agents._tool_executor import run_tool_loop
+from src.agents._tool_executor import _workspace_is_empty, extract_files_from_content, run_tool_loop
 from src.state import AgentRole, AgentState
 from src.tools.code_tools import create_file, list_directory, read_file, run_command
 from src.tools.git_tools import clone_repository, commit_changes, get_diff, push_changes
@@ -103,6 +103,13 @@ Please perform quality assurance:
 
         messages = prompt.format_messages(messages=state.messages)
         response = await run_tool_loop(agent_llm, tools, messages)
+
+        # Fallback: extract files from text response if workspace is still empty.
+        if state.workspace_path and _workspace_is_empty(state.workspace_path):
+            text = response.content if isinstance(response.content, str) else ""
+            created = extract_files_from_content(text, state.workspace_path)
+            if created:
+                logger.info("QA: fallback extracted %d file(s): %s", len(created), created)
 
         qa_output = {
             "assessment": response.content,

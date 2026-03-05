@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # LLM settings
     openai_api_key: SecretStr = Field(default=SecretStr(""), alias="OPENAI_API_KEY")
     anthropic_api_key: SecretStr = Field(default=SecretStr(""), alias="ANTHROPIC_API_KEY")
-    llm_provider: Literal["openai", "anthropic", "azure"] = Field(
+    llm_provider: Literal["openai", "anthropic", "azure", "mock"] = Field(
         default="openai", alias="LLM_PROVIDER"
     )
     llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")

@@ -128,6 +128,101 @@ jobs:
           fi
           echo "✅ All 6 agents registered"
 
+      - name: Mock LLM e2e test — verify file creation logic without real credentials
+        run: |
+          # Run a second container with LLM_PROVIDER=mock to verify the full agent
+          # pipeline (orchestrator routing → developer file creation → workspace check)
+          # works correctly, independent of real LLM credentials.
+          docker run -d \
+            --name langgraph-ci-mock \
+            -p 8001:8000 \
+            -e LLM_PROVIDER=mock \
+            -e GITHUB_TOKEN=placeholder \
+            -e GITHUB_OWNER=placeholder \
+            -e GITHUB_REPO=placeholder \
+            langgraph-multi-agent:ci
+
+          echo "Waiting for mock container to be ready..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8001/health > /dev/null; then
+              echo "✅ mock /health is up"
+              break
+            fi
+            sleep 2
+            if [ "$i" -eq 15 ]; then
+              echo "❌ Mock server did not start within 30 s"
+              docker logs langgraph-ci-mock 2>/dev/null || true
+              exit 1
+            fi
+          done
+
+          echo "--- Sending hello-world goal to mock /run ---"
+          HTTP_RESPONSE=$(curl -s --max-time 60 -w "\n%{http_code}" -X POST http://localhost:8001/run \
+            -H "Content-Type: application/json" \
+            -d '{
+              "goal": "Create a minimal Python hello-world project in the workspace: (1) write main.py that prints exactly Hello, World! when executed, (2) write test_main.py with a pytest test, (3) write README.md with usage instructions. Do not use git.",
+              "max_iterations": 5
+            }')
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$HTTP_RESPONSE" | head -n-1)
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ /run returned HTTP $HTTP_CODE"
+            echo "$RESPONSE"
+            docker logs langgraph-ci-mock 2>/dev/null || true
+            exit 1
+          fi
+          echo "$RESPONSE" | python3 -m json.tool
+
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','MISSING'))")
+          echo "Status: $STATUS"
+
+          RUN_ID=$(echo "$RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('run_id',''))")
+          echo "Run ID: $RUN_ID"
+
+          FILES_RESPONSE=$(curl -sf http://localhost:8001/run/$RUN_ID/files)
+          echo "$FILES_RESPONSE" | python3 -m json.tool
+          FILES_LIST=$(echo "$FILES_RESPONSE" | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin).get('files', [])))")
+          echo "Files in workspace:"
+          echo "$FILES_LIST"
+
+          if echo "$FILES_LIST" | grep -qi "main\.py"; then
+            echo "✅ mock: main.py was created"
+          else
+            echo "❌ mock: main.py was NOT found in workspace"
+            docker logs langgraph-ci-mock 2>/dev/null || true
+            exit 1
+          fi
+
+          if echo "$FILES_LIST" | grep -qiE "test.*\.py|\.py.*test"; then
+            echo "✅ mock: test file was created"
+          else
+            echo "❌ mock: No test file found in workspace"
+            docker logs langgraph-ci-mock 2>/dev/null || true
+            exit 1
+          fi
+
+          if echo "$FILES_LIST" | grep -qiE "\.md$|\.txt$|readme"; then
+            echo "✅ mock: documentation file was created"
+          else
+            echo "❌ mock: No documentation file found in workspace"
+            docker logs langgraph-ci-mock 2>/dev/null || true
+            exit 1
+          fi
+
+          WORKSPACE_PATH=$(echo "$FILES_RESPONSE" | python3 -c "import sys,json; print(json.load(sys.stdin).get('workspace_path',''))")
+          PROGRAM_OUTPUT=$(docker exec langgraph-ci-mock python3 "$WORKSPACE_PATH/main.py" 2>&1)
+          echo "Program output: $PROGRAM_OUTPUT"
+          if echo "$PROGRAM_OUTPUT" | grep -qi "hello"; then
+            echo "✅ mock: main.py prints a Hello message"
+          else
+            echo "❌ mock: main.py output does not contain 'Hello': $PROGRAM_OUTPUT"
+            exit 1
+          fi
+
+          docker stop langgraph-ci-mock 2>/dev/null || true
+          docker rm   langgraph-ci-mock 2>/dev/null || true
+
       - name: End-to-end agent test — POST hello-world goal to /run
         run: |
           # Use the provider detected and exported in the previous step.

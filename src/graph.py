@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from typing import Any
 
 from langchain_anthropic import ChatAnthropic
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
@@ -20,10 +23,113 @@ from src.state import AgentRole, AgentState
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Mock LLM — used when LLM_PROVIDER=mock (offline / CI integration testing)
+# ---------------------------------------------------------------------------
+
+_MOCK_FILES_JSON = json.dumps(
+    {
+        "files": [
+            {"path": "main.py", "content": 'print("Hello, World!")\n'},
+            {
+                "path": "test_main.py",
+                "content": (
+                    "import subprocess\n\n\n"
+                    "def test_main():\n"
+                    "    result = subprocess.run(\n"
+                    '        ["python3", "main.py"],\n'
+                    "        capture_output=True,\n"
+                    "        text=True,\n"
+                    "    )\n"
+                    '    assert "Hello" in result.stdout\n'
+                ),
+            },
+            {
+                "path": "README.md",
+                "content": (
+                    "# Hello World\n\n"
+                    "A minimal Python hello-world project.\n\n"
+                    "## Usage\n\n"
+                    "```bash\npython3 main.py\n```\n"
+                ),
+            },
+        ],
+        "summary": "Created hello-world project with main.py, tests, and README.",
+    },
+    indent=2,
+)
+
+
+class _MockChatModel:
+    """Offline LLM stub for integration / e2e testing without real credentials.
+
+    Routing rules (detected from the system message content):
+    - Orchestrator (first call, no developer_output): route to "developer".
+    - Orchestrator (developer output present): return "DONE".
+    - Any specialist agent (developer / qa / documentation / …): return a
+      ``\\`\\`\\`json`` block with the three hello-world project files so that the
+      ``extract_files_from_content`` fallback creates them in the workspace.
+    """
+
+    def bind_tools(self, tools: list[Any], **kwargs: Any) -> _MockChatModel:
+        """Return self — mock ignores tool binding."""
+        return self
+
+    async def ainvoke(self, messages: list[BaseMessage], **kwargs: Any) -> AIMessage:
+        """Return a canned response based on which agent is running."""
+        # Detect context from the system message.
+        sys_content = next(
+            (
+                str(getattr(m, "content", ""))
+                for m in messages
+                if getattr(m, "type", "") == "system"
+            ),
+            "",
+        )
+
+        is_orchestrator = "Project Manager" in sys_content
+
+        if is_orchestrator:
+            # After the developer has run, route to DONE.
+            last_human = next(
+                (m for m in reversed(messages) if getattr(m, "type", "") == "human"),
+                None,
+            )
+            human_text = str(getattr(last_human, "content", "")) if last_human else ""
+            if "implementation" in human_text:
+                return AIMessage(
+                    content=json.dumps(
+                        {
+                            "analysis": "Developer completed all files. Project is done.",
+                            "next_agent": "DONE",
+                        }
+                    )
+                )
+            return AIMessage(
+                content=json.dumps(
+                    {
+                        "analysis": "Assigning hello-world project to developer.",
+                        "tasks": [
+                            {"title": "Create hello-world project", "assigned_to": "developer"}
+                        ],
+                        "next_agent": "developer",
+                    }
+                )
+            )
+
+        # Specialist agent — return JSON file bundle so the fallback extractor
+        # writes main.py / test_main.py / README.md into the workspace.
+        return AIMessage(content=f"```json\n{_MOCK_FILES_JSON}\n```")
+
 
 def _create_llm():
     """Instantiate the LLM based on settings."""
     settings = get_settings()
+
+    if settings.llm_provider == "mock":
+        logger.info("Using MockChatModel (offline testing mode)")
+        return _MockChatModel()
+
     if settings.llm_provider == "azure":
         api_key = settings.azure_openai_api_key.get_secret_value() or None
         base_url = settings.azure_openai_base_url

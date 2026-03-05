@@ -7,7 +7,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from src.agents._tool_executor import run_tool_loop
+from src.agents._tool_executor import _workspace_is_empty, extract_files_from_content, run_tool_loop
 from src.state import AgentRole, AgentState
 from src.tools.code_tools import create_file, list_directory, read_file, run_command
 from src.tools.git_tools import (
@@ -105,6 +105,16 @@ Steps for this task:
 4. Only use git tools (clone, commit, push, PR) if a repository URL is provided and the
    goal explicitly requires version control. Otherwise skip git steps entirely.
 
+If you cannot call tools, you MUST respond with a ```json code block containing ALL files:
+{{
+  "files": [
+    {{"path": "main.py", "content": "complete file content"}},
+    {{"path": "test_main.py", "content": "complete file content"}},
+    {{"path": "README.md", "content": "complete file content"}}
+  ],
+  "summary": "brief description"
+}}
+
 Be thorough and write production-quality code.
 """
                 ),
@@ -113,6 +123,15 @@ Be thorough and write production-quality code.
 
         messages = prompt.format_messages(messages=state.messages)
         response = await run_tool_loop(agent_llm, tools, messages)
+
+        # Fallback: if no files were created via tool_calls, extract them from the
+        # LLM response text.  The prompt asks for JSON output when tools can't be
+        # called, so we look for a ```json block first, then bold-filename headers.
+        if state.workspace_path and _workspace_is_empty(state.workspace_path):
+            text = response.content if isinstance(response.content, str) else ""
+            created = extract_files_from_content(text, state.workspace_path)
+            if created:
+                logger.info("Developer: fallback extracted %d file(s): %s", len(created), created)
 
         developer_output = {
             "implementation": response.content,
