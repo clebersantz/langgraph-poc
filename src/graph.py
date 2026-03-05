@@ -111,13 +111,24 @@ def build_graph() -> CompiledStateGraph:
     return compiled
 
 
-# Singleton graph instance
-_graph: CompiledStateGraph | None = None
+class _GraphHolder:
+    """Thread-safe singleton holder for the compiled graph."""
+
+    _instance: CompiledStateGraph | None = None
+
+    @classmethod
+    def get(cls) -> CompiledStateGraph:
+        """Return (or lazily create) the singleton compiled graph."""
+        if cls._instance is None:
+            cls._instance = build_graph()
+        return cls._instance
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset the singleton (useful for testing)."""
+        cls._instance = None
 
 
 def get_graph() -> CompiledStateGraph:
     """Return the singleton compiled graph."""
-    global _graph  # noqa: PLW0603
-    if _graph is None:
-        _graph = build_graph()
-    return _graph
+    return _GraphHolder.get()

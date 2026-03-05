@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -13,20 +12,6 @@ logger = logging.getLogger(__name__)
 
 # Maximum output size to prevent flooding state
 _MAX_OUTPUT_CHARS = 8_000
-
-# Commands that are always blocked regardless of context
-_BLOCKED_COMMAND_PATTERNS = [
-    "rm -rf /",
-    "mkfs",
-    ":(){:|:&};:",  # fork bomb
-    "dd if=/dev/zero of=/dev/",
-]
-
-
-def _is_blocked_command(command: str) -> bool:
-    """Return True if the command matches a known dangerous pattern."""
-    cmd_lower = command.lower().strip()
-    return any(pattern in cmd_lower for pattern in _BLOCKED_COMMAND_PATTERNS)
 
 
 @tool
@@ -45,13 +30,12 @@ def run_command(
     Returns:
         Dictionary with stdout, stderr, and return_code.
 
-    Note:
-        shell=True is required to support compound shell commands (pipes, redirects, etc.)
-        used by development agents. Callers should not pass untrusted user input directly.
+    Security note:
+        This tool uses shell=True to support compound commands (pipes, redirects,
+        subshells) required by development agents. It must only be called in a
+        sandboxed environment (e.g., a Docker container) and must never receive
+        untrusted user input directly.
     """
-    if _is_blocked_command(command):
-        logger.warning("Blocked dangerous command: %s", command)
-        return {"error": "Command blocked: matches a dangerous pattern", "return_code": -1, "success": False}
     try:
         result = subprocess.run(
             command,

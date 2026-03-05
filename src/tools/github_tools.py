@@ -17,7 +17,7 @@ def _get_github_client() -> Github:
     settings = get_settings()
     token = settings.github_token.get_secret_value()
     if not token:
-        raise ValueError("GITHUB_TOKEN environment variable is not set")
+        raise ValueError("GITHUB_TOKEN is not configured or is empty")
     return Github(auth=Auth.Token(token))
 
 
