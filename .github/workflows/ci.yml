@@ -59,26 +59,48 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test — container starts and /health responds
+      - name: Run container and verify service health
         run: |
-          docker run --rm -d \
+          docker run -d \
             --name langgraph-ci-smoke \
             -p 8000:8000 \
             -e OPENAI_API_KEY=placeholder \
+            -e ANTHROPIC_API_KEY=placeholder \
             -e GITHUB_TOKEN=placeholder \
             -e GITHUB_OWNER=placeholder \
             -e GITHUB_REPO=placeholder \
             langgraph-multi-agent:ci
-          # Wait up to 30 s for the server to be ready
+
+          echo "Waiting for langgraph-poc to be ready..."
           for i in $(seq 1 15); do
-            if curl -sf http://localhost:8000/health; then
-              echo "Health check passed"
-              docker stop langgraph-ci-smoke
-              exit 0
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "✅ /health is up"
+              break
             fi
+            echo "  attempt $i/15 — not ready yet, retrying in 2 s"
             sleep 2
+            if [ "$i" -eq 15 ]; then
+              echo "❌ Server did not start within 30 s"
+              exit 1
+            fi
           done
-          echo "Health check timed out"
-          docker logs langgraph-ci-smoke
-          docker stop langgraph-ci-smoke || true
-          exit 1
+
+          echo "--- /health response ---"
+          curl -sf http://localhost:8000/health | python3 -m json.tool
+
+          echo "--- /agents response (must list 6 agents) ---"
+          AGENTS=$(curl -sf http://localhost:8000/agents)
+          echo "$AGENTS" | python3 -m json.tool
+          COUNT=$(echo "$AGENTS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+          if [ "$COUNT" -ne 6 ]; then
+            echo "❌ Expected 6 agents, got $COUNT"
+            exit 1
+          fi
+          echo "✅ All 6 agents registered"
+
+      - name: Show container logs and clean up
+        if: always()
+        run: |
+          docker logs langgraph-ci-smoke 2>/dev/null || true
+          docker stop langgraph-ci-smoke 2>/dev/null || true
+          docker rm  langgraph-ci-smoke 2>/dev/null || true
