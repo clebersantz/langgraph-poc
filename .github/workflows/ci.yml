@@ -93,7 +93,7 @@ jobs:
             -e "ANTHROPIC_API_KEY=$ANTHROPIC_KEY" \
             -e "AZURE_OPENAI_API_KEY=$AZURE_KEY" \
             -e "AZURE_OPENAI_BASE_URL=$AZURE_URL" \
-            -e "AZURE_OPENAI_DEPLOYMENT=${{ vars.AZURE_OPENAI_DEPLOYMENT || 'gpt-4.1' }}" \
+            -e "AZURE_OPENAI_DEPLOYMENT=${{ vars.AZURE_OPENAI_DEPLOYMENT }}" \
             -e GITHUB_TOKEN=placeholder \
             -e GITHUB_OWNER=placeholder \
             -e GITHUB_REPO=placeholder \
