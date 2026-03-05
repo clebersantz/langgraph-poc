@@ -63,7 +63,14 @@ Each agent has access to:
    curl http://localhost:8000/health
    ```
 
-4. **Run a workflow**:
+4. **Chat with the agents** (browser UI):
+   ```
+   Open http://localhost:8000/ in your browser
+   ```
+   Type your request in plain English, for example:
+   > Please clone https://github.com/your-org/your-repo and create a new CRUD endpoint.
+
+5. **Or run a workflow via API**:
    ```bash
    curl -X POST http://localhost:8000/run \
      -H "Content-Type: application/json" \
@@ -102,9 +109,42 @@ Each agent has access to:
 
 ## API Reference
 
+### `GET /`
+
+Opens the **chat UI** — a browser-based conversational interface. Describe your goal in plain
+language; include a GitHub URL and the system will extract it automatically.
+
+### `POST /chat`
+
+Conversational endpoint. Accepts a plain-language message and runs the full multi-agent workflow.
+
+**Request**:
+```json
+{
+  "message": "Please clone https://github.com/org/repo and add a new REST endpoint",
+  "session_id": "optional-uuid-to-continue-a-session",
+  "max_iterations": 10
+}
+```
+
+**Response**:
+```json
+{
+  "session_id": "uuid",
+  "reply": "✅ Workflow completed successfully!\n...",
+  "run_id": "uuid",
+  "status": "completed",
+  "result": {}
+}
+```
+
+### `GET /chat/history/{session_id}`
+
+Returns the full conversation history (list of `{"role", "content"}` objects) for a session.
+
 ### `POST /run`
 
-Start a multi-agent workflow.
+Start a multi-agent workflow (structured JSON form, kept for backwards compatibility).
 
 **Request**:
 ```json
