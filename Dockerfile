@@ -23,13 +23,13 @@ COPY src/ ./src/
 # Create workspace directory
 RUN mkdir -p /tmp/workspace
 
-# Configure git
-RUN git config --global user.email "agent@langgraph.local" \
-    && git config --global user.name "LangGraph Agent"
-
 # Non-root user for security
 RUN useradd -m -u 1000 agent && chown -R agent:agent /app /tmp/workspace
 USER agent
+
+# Configure git for the agent user (required for commits at runtime and in CI)
+RUN git config --global user.email "agent@langgraph.local" \
+    && git config --global user.name "LangGraph Agent"
 
 EXPOSE 8000
 

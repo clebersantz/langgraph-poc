@@ -98,6 +98,28 @@ jobs:
           fi
           echo "✅ All 6 agents registered"
 
+      - name: Git smoke test — create Python hello-world project and commit inside container
+        run: |
+          docker exec langgraph-ci-smoke bash -c '
+            set -e
+            WORKDIR=$(mktemp -d /tmp/hello-world-XXXXXX)
+            cd "$WORKDIR"
+
+            # Write a minimal Python hello-world script
+            echo "print(\"Hello, World!\")" > hello.py
+
+            # Verify the script runs correctly
+            python3 hello.py
+
+            # Initialise git repo, stage, and commit (no push required)
+            git init
+            git add hello.py
+            git commit -m "feat: add hello-world Python script"
+
+            echo "git commit succeeded"
+            git log --oneline
+          '
+
       - name: Show container logs and clean up
         if: always()
         run: |
