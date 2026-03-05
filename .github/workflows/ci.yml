@@ -22,7 +22,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: pip
 
       - name: Install lint dependencies
@@ -145,42 +145,21 @@ jobs:
           fi
           echo "$RESPONSE" | python3 -m json.tool
 
-          STATUS=$(echo "$RESPONSE" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(d.get('status', 'MISSING'))
-except Exception as e:
-    print(f'PARSE_ERROR:{e}')
-")
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','MISSING'))" 2>&1 || echo "PARSE_ERROR")
           if [ "$STATUS" != "completed" ]; then
             echo "❌ Expected status=completed, got: $STATUS"
             exit 1
           fi
           echo "✅ Workflow status: $STATUS"
 
-          ERRORS=$(echo "$RESPONSE" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(len(d.get('errors', [])))
-except Exception as e:
-    print(f'PARSE_ERROR:{e}')
-")
+          ERRORS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors',[])))" 2>&1 || echo "PARSE_ERROR")
           if [ "$ERRORS" != "0" ]; then
             echo "❌ Expected no errors, got: $ERRORS"
             exit 1
           fi
           echo "✅ No workflow errors"
 
-          ITERATIONS=$(echo "$RESPONSE" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    print(d.get('iterations', 0))
-except Exception as e:
-    print(f'PARSE_ERROR:{e}')
-")
+          ITERATIONS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('iterations',0))" 2>&1 || echo "PARSE_ERROR")
           echo "✅ Completed in $ITERATIONS iteration(s)"
 
       - name: Show container logs and clean up
