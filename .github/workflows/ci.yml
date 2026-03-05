@@ -61,20 +61,44 @@ jobs:
 
       - name: Run container and verify service health
         run: |
+          # Auto-detect the LLM provider from available credentials so the
+          # test works without requiring LLM_PROVIDER to be explicitly set.
+          # Priority: explicit var → azure (if both key+url set) → anthropic → openai
+          LLM_PROVIDER_VAR="${{ vars.LLM_PROVIDER }}"
+          AZURE_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}"
+          AZURE_URL="${{ vars.AZURE_OPENAI_BASE_URL }}"
+          ANTHROPIC_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+          OPENAI_KEY="${{ secrets.OPENAI_API_KEY }}"
+
+          if [ -n "$LLM_PROVIDER_VAR" ]; then
+            EFFECTIVE_PROVIDER="$LLM_PROVIDER_VAR"
+          elif [ -n "$AZURE_KEY" ] && [ -n "$AZURE_URL" ]; then
+            EFFECTIVE_PROVIDER="azure"
+          elif [ -n "$ANTHROPIC_KEY" ]; then
+            EFFECTIVE_PROVIDER="anthropic"
+          elif [ -n "$OPENAI_KEY" ]; then
+            EFFECTIVE_PROVIDER="openai"
+          else
+            EFFECTIVE_PROVIDER="none"
+          fi
+
+          echo "Using LLM provider: $EFFECTIVE_PROVIDER"
+          echo "EFFECTIVE_PROVIDER=$EFFECTIVE_PROVIDER" >> "$GITHUB_ENV"
+
           docker run -d \
             --name langgraph-ci-smoke \
             -p 8000:8000 \
-            -e LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openai' }} \
-            -e OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
-            -e ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }} \
-            -e AZURE_OPENAI_API_KEY=${{ secrets.AZURE_OPENAI_API_KEY }} \
-            -e AZURE_OPENAI_BASE_URL=${{ vars.AZURE_OPENAI_BASE_URL }} \
+            -e "LLM_PROVIDER=$EFFECTIVE_PROVIDER" \
+            -e "OPENAI_API_KEY=$OPENAI_KEY" \
+            -e "ANTHROPIC_API_KEY=$ANTHROPIC_KEY" \
+            -e "AZURE_OPENAI_API_KEY=$AZURE_KEY" \
+            -e "AZURE_OPENAI_BASE_URL=$AZURE_URL" \
             -e GITHUB_TOKEN=placeholder \
             -e GITHUB_OWNER=placeholder \
             -e GITHUB_REPO=placeholder \
             langgraph-multi-agent:ci
-          # Only the key matching LLM_PROVIDER is used at runtime;
-          # unset secrets expand to empty strings and are safely ignored.
+          # All credential env vars are passed; only those for EFFECTIVE_PROVIDER
+          # are non-empty and will be used by the running container.
 
           echo "Waiting for langgraph-poc to be ready..."
           for i in $(seq 1 15); do
@@ -105,23 +129,30 @@ jobs:
 
       - name: End-to-end agent test — POST hello-world goal to /run
         run: |
-          # Determine which API key is needed for the configured provider
-          PROVIDER="${{ vars.LLM_PROVIDER || 'openai' }}"
+          # Use the provider detected and exported in the previous step.
+          PROVIDER="${{ env.EFFECTIVE_PROVIDER }}"
+          AZURE_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}"
+          AZURE_URL="${{ vars.AZURE_OPENAI_BASE_URL }}"
+          ANTHROPIC_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+          OPENAI_KEY="${{ secrets.OPENAI_API_KEY }}"
+
           case "$PROVIDER" in
             azure)
-              KEY="${{ secrets.AZURE_OPENAI_API_KEY }}"
+              KEY="$AZURE_KEY"
               KEY_NAME="AZURE_OPENAI_API_KEY"
-              BASE_URL="${{ vars.AZURE_OPENAI_BASE_URL }}"
               ;;
             anthropic)
-              KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+              KEY="$ANTHROPIC_KEY"
               KEY_NAME="ANTHROPIC_API_KEY"
-              BASE_URL=""
+              ;;
+            none)
+              echo "⚠️  No LLM credentials configured — skipping /run end-to-end test."
+              echo "   Configure AZURE_OPENAI_API_KEY+AZURE_OPENAI_BASE_URL, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
+              exit 0
               ;;
             *)
-              KEY="${{ secrets.OPENAI_API_KEY }}"
+              KEY="$OPENAI_KEY"
               KEY_NAME="OPENAI_API_KEY"
-              BASE_URL=""
               ;;
           esac
 
@@ -131,7 +162,7 @@ jobs:
             exit 0
           fi
 
-          if [ "$PROVIDER" = "azure" ] && [ -z "$BASE_URL" ]; then
+          if [ "$PROVIDER" = "azure" ] && [ -z "$AZURE_URL" ]; then
             echo "⚠️  AZURE_OPENAI_BASE_URL variable is not configured — skipping /run end-to-end test."
             echo "   To enable: add AZURE_OPENAI_BASE_URL in Settings → Variables → Actions."
             exit 0
