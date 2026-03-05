@@ -1,0 +1,211 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install lint dependencies
+        run: pip install ruff mypy
+
+      - name: Run ruff (linter + formatter check)
+        run: ruff check src/ tests/
+
+      - name: Run ruff format check
+        run: ruff format --check src/ tests/
+
+      - name: Run mypy (type check)
+        run: mypy src/
+
+  docker-build-check:
+    name: Docker Build Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: langgraph-multi-agent:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run container and verify service health
+        run: |
+          # Auto-detect the LLM provider from available credentials so the
+          # test works without requiring LLM_PROVIDER to be explicitly set.
+          # Priority: explicit var → azure (if both key+url set) → anthropic → openai
+          LLM_PROVIDER_VAR="${{ vars.LLM_PROVIDER }}"
+          AZURE_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}"
+          AZURE_URL="${{ vars.AZURE_OPENAI_BASE_URL }}"
+          ANTHROPIC_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+          OPENAI_KEY="${{ secrets.OPENAI_API_KEY }}"
+
+          if [ -n "$LLM_PROVIDER_VAR" ]; then
+            EFFECTIVE_PROVIDER="$LLM_PROVIDER_VAR"
+          elif [ -n "$AZURE_KEY" ] && [ -n "$AZURE_URL" ]; then
+            EFFECTIVE_PROVIDER="azure"
+          elif [ -n "$ANTHROPIC_KEY" ]; then
+            EFFECTIVE_PROVIDER="anthropic"
+          elif [ -n "$OPENAI_KEY" ]; then
+            EFFECTIVE_PROVIDER="openai"
+          else
+            EFFECTIVE_PROVIDER="none"
+          fi
+
+          echo "Using LLM provider: $EFFECTIVE_PROVIDER"
+          echo "EFFECTIVE_PROVIDER=$EFFECTIVE_PROVIDER" >> "$GITHUB_ENV"
+
+          docker run -d \
+            --name langgraph-ci-smoke \
+            -p 8000:8000 \
+            -e "LLM_PROVIDER=$EFFECTIVE_PROVIDER" \
+            -e "OPENAI_API_KEY=$OPENAI_KEY" \
+            -e "ANTHROPIC_API_KEY=$ANTHROPIC_KEY" \
+            -e "AZURE_OPENAI_API_KEY=$AZURE_KEY" \
+            -e "AZURE_OPENAI_BASE_URL=$AZURE_URL" \
+            -e "AZURE_OPENAI_DEPLOYMENT=${{ vars.AZURE_OPENAI_DEPLOYMENT }}" \
+            -e GITHUB_TOKEN=placeholder \
+            -e GITHUB_OWNER=placeholder \
+            -e GITHUB_REPO=placeholder \
+            langgraph-multi-agent:ci
+          # All credential env vars are passed; only those for EFFECTIVE_PROVIDER
+          # are non-empty and will be used by the running container.
+
+          echo "Waiting for langgraph-poc to be ready..."
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8000/health > /dev/null; then
+              echo "✅ /health is up"
+              break
+            fi
+            echo "  attempt $i/15 — not ready yet, retrying in 2 s"
+            sleep 2
+            if [ "$i" -eq 15 ]; then
+              echo "❌ Server did not start within 30 s"
+              exit 1
+            fi
+          done
+
+          echo "--- /health response ---"
+          curl -sf http://localhost:8000/health | python3 -m json.tool
+
+          echo "--- /agents response (must list 6 agents) ---"
+          AGENTS=$(curl -sf http://localhost:8000/agents)
+          echo "$AGENTS" | python3 -m json.tool
+          COUNT=$(echo "$AGENTS" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))")
+          if [ "$COUNT" -ne 6 ]; then
+            echo "❌ Expected 6 agents, got $COUNT"
+            exit 1
+          fi
+          echo "✅ All 6 agents registered"
+
+      - name: End-to-end agent test — POST hello-world goal to /run
+        run: |
+          # Use the provider detected and exported in the previous step.
+          PROVIDER="${{ env.EFFECTIVE_PROVIDER }}"
+          AZURE_KEY="${{ secrets.AZURE_OPENAI_API_KEY }}"
+          AZURE_URL="${{ vars.AZURE_OPENAI_BASE_URL }}"
+          ANTHROPIC_KEY="${{ secrets.ANTHROPIC_API_KEY }}"
+          OPENAI_KEY="${{ secrets.OPENAI_API_KEY }}"
+
+          case "$PROVIDER" in
+            azure)
+              KEY="$AZURE_KEY"
+              KEY_NAME="AZURE_OPENAI_API_KEY"
+              ;;
+            anthropic)
+              KEY="$ANTHROPIC_KEY"
+              KEY_NAME="ANTHROPIC_API_KEY"
+              ;;
+            none)
+              echo "⚠️  No LLM credentials configured — skipping /run end-to-end test."
+              echo "   Configure AZURE_OPENAI_API_KEY+AZURE_OPENAI_BASE_URL, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
+              exit 0
+              ;;
+            *)
+              KEY="$OPENAI_KEY"
+              KEY_NAME="OPENAI_API_KEY"
+              ;;
+          esac
+
+          if [ -z "$KEY" ]; then
+            echo "⚠️  $KEY_NAME secret is not configured — skipping /run end-to-end test."
+            echo "   To enable: add the $KEY_NAME secret in Settings → Secrets → Actions."
+            exit 0
+          fi
+
+          if [ "$PROVIDER" = "azure" ] && [ -z "$AZURE_URL" ]; then
+            echo "⚠️  AZURE_OPENAI_BASE_URL variable is not configured — skipping /run end-to-end test."
+            echo "   To enable: add AZURE_OPENAI_BASE_URL in Settings → Variables → Actions."
+            exit 0
+          fi
+
+          echo "--- Sending hello-world goal to /run (real LangGraph agent flow, provider=$PROVIDER) ---"
+          HTTP_RESPONSE=$(curl -s --max-time 120 -w "\n%{http_code}" -X POST http://localhost:8000/run \
+            -H "Content-Type: application/json" \
+            -d '{
+              "goal": "Create a minimal Python hello-world project: write a main.py that prints Hello World, initialise a git repository, and commit the file.",
+              "max_iterations": 3
+            }')
+          HTTP_CODE=$(echo "$HTTP_RESPONSE" | tail -n1)
+          RESPONSE=$(echo "$HTTP_RESPONSE" | head -n-1)
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ /run returned HTTP $HTTP_CODE"
+            echo "$RESPONSE"
+            exit 1
+          fi
+          echo "$RESPONSE" | python3 -m json.tool
+
+          STATUS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','MISSING'))" 2>&1 || echo "PARSE_ERROR")
+          if [ "$STATUS" != "completed" ]; then
+            echo "❌ Expected status=completed, got: $STATUS"
+            exit 1
+          fi
+          echo "✅ Workflow status: $STATUS"
+
+          ERRORS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors',[])))" 2>&1 || echo "PARSE_ERROR")
+          if [ "$ERRORS" != "0" ]; then
+            echo "❌ Expected no errors, got: $ERRORS"
+            exit 1
+          fi
+          echo "✅ No workflow errors"
+
+          ITERATIONS=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('iterations',0))" 2>&1 || echo "PARSE_ERROR")
+          echo "✅ Completed in $ITERATIONS iteration(s)"
+
+      - name: Show container logs and clean up
+        if: always()
+        run: |
+          docker logs langgraph-ci-smoke 2>/dev/null || true
+          docker stop langgraph-ci-smoke 2>/dev/null || true
+          docker rm  langgraph-ci-smoke 2>/dev/null || true

@@ -1,0 +1,43 @@
+version: "3.9"
+
+services:
+  langgraph-agents:
+    # DOCKER_IMAGE is set to the GHCR image in production (see CD workflow).
+    # When not set, docker-compose falls back to building locally.
+    image: ${DOCKER_IMAGE:-langgraph-multi-agent:latest}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: langgraph-multi-agent
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-openai}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o}
+      - LLM_TEMPERATURE=${LLM_TEMPERATURE:-0.1}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - GITHUB_OWNER=${GITHUB_OWNER}
+      - GITHUB_REPO=${GITHUB_REPO}
+      - GIT_USER_NAME=${GIT_USER_NAME:-LangGraph Agent}
+      - GIT_USER_EMAIL=${GIT_USER_EMAIL:-agent@langgraph.local}
+      - WORKSPACE_DIR=/tmp/workspace
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DEBUG=${DEBUG:-false}
+      - MAX_ITERATIONS=${MAX_ITERATIONS:-10}
+      - RECURSION_LIMIT=${RECURSION_LIMIT:-50}
+    volumes:
+      - workspace_data:/tmp/workspace
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  workspace_data:
+    driver: local
