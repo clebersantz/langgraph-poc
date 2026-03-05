@@ -1,4 +1,5 @@
 """Documentation agent."""
+
 from __future__ import annotations
 
 import logging
@@ -59,25 +60,35 @@ def create_documentation_agent(llm):
         logger.info("Documentation agent processing task: %s", state.current_task)
 
         tools = [
-            read_file, list_directory, create_file, run_command,
-            commit_changes, push_changes, get_diff,
-            create_issue, update_issue, add_comment_to_issue,
-            add_comment_to_pr, update_pull_request,
+            read_file,
+            list_directory,
+            create_file,
+            run_command,
+            commit_changes,
+            push_changes,
+            get_diff,
+            create_issue,
+            update_issue,
+            add_comment_to_issue,
+            add_comment_to_pr,
+            update_pull_request,
         ]
         agent_llm = llm.bind_tools(tools)
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=_SYSTEM_PROMPT),
-            MessagesPlaceholder(variable_name="messages"),
-            HumanMessage(content=f"""
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                MessagesPlaceholder(variable_name="messages"),
+                HumanMessage(
+                    content=f"""
 Project goal: {state.project_goal}
 Repository: {state.project_repo}
 Workspace: {state.workspace_path}
-Current task: {state.current_task.model_dump() if state.current_task else 'None'}
-Architecture: {state.architect_output.get('analysis', 'Not yet designed')}
-Implementation: {state.developer_output.get('implementation', 'Not yet implemented')}
-QA assessment: {state.qa_output.get('assessment', 'Not yet assessed')}
-Security assessment: {state.security_output.get('assessment', 'Not yet assessed')}
+Current task: {state.current_task.model_dump() if state.current_task else "None"}
+Architecture: {state.architect_output.get("analysis", "Not yet designed")}
+Implementation: {state.developer_output.get("implementation", "Not yet implemented")}
+QA assessment: {state.qa_output.get("assessment", "Not yet assessed")}
+Security assessment: {state.security_output.get("assessment", "Not yet assessed")}
 
 Please create/update documentation:
 1. README.md with overview, installation, and usage instructions
@@ -89,8 +100,10 @@ Please create/update documentation:
 7. Update any existing outdated docs
 
 Commit documentation changes to the repository.
-"""),
-        ])
+"""
+                ),
+            ]
+        )
 
         messages = prompt.format_messages(messages=state.messages)
         response = await agent_llm.ainvoke(messages)

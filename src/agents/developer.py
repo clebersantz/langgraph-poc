@@ -1,4 +1,5 @@
 """Developer agent."""
+
 from __future__ import annotations
 
 import logging
@@ -63,22 +64,34 @@ def create_developer_agent(llm):
         logger.info("Developer agent processing task: %s", state.current_task)
 
         tools = [
-            clone_repository, create_branch, commit_changes, push_changes, get_diff,
-            create_file, read_file, list_directory, run_command,
-            create_pull_request, update_pull_request, update_issue, add_comment_to_issue,
+            clone_repository,
+            create_branch,
+            commit_changes,
+            push_changes,
+            get_diff,
+            create_file,
+            read_file,
+            list_directory,
+            run_command,
+            create_pull_request,
+            update_pull_request,
+            update_issue,
+            add_comment_to_issue,
         ]
         agent_llm = llm.bind_tools(tools)
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=_SYSTEM_PROMPT),
-            MessagesPlaceholder(variable_name="messages"),
-            HumanMessage(content=f"""
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                MessagesPlaceholder(variable_name="messages"),
+                HumanMessage(
+                    content=f"""
 Project goal: {state.project_goal}
 Repository: {state.project_repo}
 Workspace: {state.workspace_path}
 Current branch: {state.project_branch}
-Current task: {state.current_task.model_dump() if state.current_task else 'None'}
-Architecture design: {state.architect_output.get('analysis', 'Not yet designed')}
+Current task: {state.current_task.model_dump() if state.current_task else "None"}
+Architecture design: {state.architect_output.get("analysis", "Not yet designed")}
 
 Please implement the required changes:
 1. Clone/update the repository if needed
@@ -90,8 +103,10 @@ Please implement the required changes:
 7. Update the relevant GitHub issue
 
 Be thorough and write production-quality code.
-"""),
-        ])
+"""
+                ),
+            ]
+        )
 
         messages = prompt.format_messages(messages=state.messages)
         response = await agent_llm.ainvoke(messages)

@@ -1,4 +1,5 @@
 """Architect agent."""
+
 from __future__ import annotations
 
 import logging
@@ -50,20 +51,28 @@ def create_architect_agent(llm):
         logger.info("Architect agent processing task: %s", state.current_task)
 
         tools = [
-            clone_repository, pull_changes, create_branch,
-            read_file, list_directory, create_file,
-            create_issue, update_issue, add_comment_to_issue,
+            clone_repository,
+            pull_changes,
+            create_branch,
+            read_file,
+            list_directory,
+            create_file,
+            create_issue,
+            update_issue,
+            add_comment_to_issue,
         ]
         agent_llm = llm.bind_tools(tools)
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=_SYSTEM_PROMPT),
-            MessagesPlaceholder(variable_name="messages"),
-            HumanMessage(content=f"""
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                MessagesPlaceholder(variable_name="messages"),
+                HumanMessage(
+                    content=f"""
 Project goal: {state.project_goal}
 Repository: {state.project_repo}
 Workspace: {state.workspace_path}
-Current task: {state.current_task.model_dump() if state.current_task else 'None'}
+Current task: {state.current_task.model_dump() if state.current_task else "None"}
 
 Please analyze the project requirements and produce:
 1. System architecture overview
@@ -75,8 +84,10 @@ Please analyze the project requirements and produce:
 7. Implementation plan for the Developer agent
 
 Document your design decisions clearly.
-"""),
-        ])
+"""
+                ),
+            ]
+        )
 
         messages = prompt.format_messages(messages=state.messages)
         response = await agent_llm.ainvoke(messages)

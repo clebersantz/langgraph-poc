@@ -1,13 +1,14 @@
 """Tests for agent node functions."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from langchain_core.messages import AIMessage
 
 from src.agents.orchestrator import _parse_next_agent
-from src.state import AgentRole, AgentState, Task, TaskStatus
+from src.state import AgentRole, AgentState
 
 
 @pytest.fixture

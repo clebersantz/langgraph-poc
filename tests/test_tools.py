@@ -1,12 +1,8 @@
 """Tests for tool functions."""
+
 from __future__ import annotations
 
-import os
-import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
 
 from src.tools.code_tools import create_file, list_directory, read_file, run_command, search_code
 
@@ -118,19 +114,23 @@ class TestSearchCode:
     def test_finds_pattern_in_files(self, tmp_path):
         py_file = tmp_path / "sample.py"
         py_file.write_text("def hello_world():\n    pass\n")
-        result = search_code.invoke({
-            "pattern": "hello_world",
-            "search_path": str(tmp_path),
-            "file_pattern": "*.py",
-        })
+        result = search_code.invoke(
+            {
+                "pattern": "hello_world",
+                "search_path": str(tmp_path),
+                "file_pattern": "*.py",
+            }
+        )
         assert result["count"] >= 1
         assert any("hello_world" in m["content"] for m in result["matches"])
 
     def test_returns_empty_for_no_matches(self, tmp_path):
         py_file = tmp_path / "empty.py"
         py_file.write_text("x = 1\n")
-        result = search_code.invoke({
-            "pattern": "nonexistent_pattern_xyz",
-            "search_path": str(tmp_path),
-        })
+        result = search_code.invoke(
+            {
+                "pattern": "nonexistent_pattern_xyz",
+                "search_path": str(tmp_path),
+            }
+        )
         assert result["count"] == 0

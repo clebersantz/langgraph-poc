@@ -1,7 +1,7 @@
 """Configuration management for the multi-agent system."""
+
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import Literal
 
@@ -16,24 +16,20 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # LLM settings
-    openai_api_key: SecretStr = Field(default="", alias="OPENAI_API_KEY")
-    anthropic_api_key: SecretStr = Field(default="", alias="ANTHROPIC_API_KEY")
-    llm_provider: Literal["openai", "anthropic"] = Field(
-        default="openai", alias="LLM_PROVIDER"
-    )
+    openai_api_key: SecretStr = Field(default=SecretStr(""), alias="OPENAI_API_KEY")
+    anthropic_api_key: SecretStr = Field(default=SecretStr(""), alias="ANTHROPIC_API_KEY")
+    llm_provider: Literal["openai", "anthropic"] = Field(default="openai", alias="LLM_PROVIDER")
     llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")
     llm_temperature: float = Field(default=0.1, alias="LLM_TEMPERATURE")
 
     # GitHub settings
-    github_token: SecretStr = Field(default="", alias="GITHUB_TOKEN")
+    github_token: SecretStr = Field(default=SecretStr(""), alias="GITHUB_TOKEN")
     github_owner: str = Field(default="", alias="GITHUB_OWNER")
     github_repo: str = Field(default="", alias="GITHUB_REPO")
 
     # Git settings
     git_user_name: str = Field(default="LangGraph Agent", alias="GIT_USER_NAME")
-    git_user_email: str = Field(
-        default="agent@langgraph.local", alias="GIT_USER_EMAIL"
-    )
+    git_user_email: str = Field(default="agent@langgraph.local", alias="GIT_USER_EMAIL")
     workspace_dir: str = Field(default="/tmp/workspace", alias="WORKSPACE_DIR")
 
     # Server settings

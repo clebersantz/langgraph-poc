@@ -1,4 +1,5 @@
 """FastAPI application entry point for the multi-agent system."""
+
 from __future__ import annotations
 
 import logging
@@ -10,6 +11,7 @@ from typing import Any
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
 from src.config import get_settings
@@ -54,6 +56,7 @@ app.add_middleware(
 
 class RunRequest(BaseModel):
     """Request body for running the multi-agent workflow."""
+
     goal: str
     repo_url: str = ""
     branch: str = "main"
@@ -62,6 +65,7 @@ class RunRequest(BaseModel):
 
 class RunResponse(BaseModel):
     """Response from running the multi-agent workflow."""
+
     run_id: str
     status: str
     iterations: int
@@ -95,8 +99,9 @@ async def run_workflow(request: RunRequest) -> RunResponse:
 
     try:
         graph = build_graph()
-        config = {"recursion_limit": settings.recursion_limit}
-        final_state = await graph.ainvoke(initial_state, config=config)
+        run_config: RunnableConfig = {"recursion_limit": settings.recursion_limit}
+        raw_state = await graph.ainvoke(initial_state, config=run_config)
+        final_state = AgentState.model_validate(raw_state)
 
         return RunResponse(
             run_id=run_id,
@@ -114,12 +119,36 @@ async def run_workflow(request: RunRequest) -> RunResponse:
 async def list_agents() -> list[dict[str, str]]:
     """List all available agents and their roles."""
     return [
-        {"name": "orchestrator", "role": "Project Manager / Orchestrator", "description": "Plans tasks and coordinates all agents"},
-        {"name": "architect", "role": "Software Architect", "description": "Designs system architecture and technical specifications"},
-        {"name": "developer", "role": "Senior Developer", "description": "Implements features and fixes bugs"},
-        {"name": "qa", "role": "QA Engineer", "description": "Tests, validates, and ensures quality"},
-        {"name": "security", "role": "Security Engineer", "description": "Reviews security and identifies vulnerabilities"},
-        {"name": "documentation", "role": "Technical Writer", "description": "Creates and maintains documentation"},
+        {
+            "name": "orchestrator",
+            "role": "Project Manager / Orchestrator",
+            "description": "Plans tasks and coordinates all agents",
+        },
+        {
+            "name": "architect",
+            "role": "Software Architect",
+            "description": "Designs system architecture and technical specifications",
+        },
+        {
+            "name": "developer",
+            "role": "Senior Developer",
+            "description": "Implements features and fixes bugs",
+        },
+        {
+            "name": "qa",
+            "role": "QA Engineer",
+            "description": "Tests, validates, and ensures quality",
+        },
+        {
+            "name": "security",
+            "role": "Security Engineer",
+            "description": "Reviews security and identifies vulnerabilities",
+        },
+        {
+            "name": "documentation",
+            "role": "Technical Writer",
+            "description": "Creates and maintains documentation",
+        },
     ]
 
 

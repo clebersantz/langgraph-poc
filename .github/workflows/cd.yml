@@ -1,0 +1,174 @@
+name: CD — Build & Deploy
+
+on:
+  push:
+    branches: [main]
+  release:
+    types: [published]
+
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ────────────────────────────────────────────
+  # Job 1: Build and push Docker image to GHCR
+  # ────────────────────────────────────────────
+  build:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    outputs:
+      image_tag: ${{ steps.meta.outputs.tags }}
+      image_digest: ${{ steps.build.outputs.digest }}
+      short_sha: ${{ steps.sha.outputs.short }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute short SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU (multi-arch)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image summary
+        run: |
+          echo "### Docker Image Published :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Key | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Registry | \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tags | \`${{ steps.meta.outputs.tags }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Digest | \`${{ steps.build.outputs.digest }}\` |" >> "$GITHUB_STEP_SUMMARY"
+
+  # ─────────────────────────────────────────
+  # Job 2: Deploy to VPS via SSH
+  # ─────────────────────────────────────────
+  deploy:
+    name: Deploy to VPS
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+    # Only deploy to VPS when all required secrets are configured
+    if: >
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      vars.VPS_DEPLOY_ENABLED == 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -euo pipefail
+
+            # ── Navigate to or create project directory ──────────────────────
+            PROJECT_DIR="${{ vars.VPS_PROJECT_DIR || '$HOME/langgraph-poc' }}"
+            mkdir -p "$PROJECT_DIR"
+            cd "$PROJECT_DIR"
+
+            # ── Pull latest docker-compose.yml from the registry ─────────────
+            # (The image is already built; we only need the compose file)
+            if [ ! -f docker-compose.yml ]; then
+              echo "Downloading docker-compose.yml from repository..."
+              curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/docker-compose.yml" \
+                -o docker-compose.yml
+            else
+              curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/docker-compose.yml" \
+                -o docker-compose.yml.new && mv docker-compose.yml.new docker-compose.yml
+            fi
+
+            # ── Write .env from GitHub secrets ───────────────────────────────
+            cat > .env << 'ENVEOF'
+            DOCKER_IMAGE=ghcr.io/${{ github.repository }}:latest
+            LLM_PROVIDER=${{ vars.LLM_PROVIDER || 'openai' }}
+            LLM_MODEL=${{ vars.LLM_MODEL || 'gpt-4o' }}
+            LLM_TEMPERATURE=${{ vars.LLM_TEMPERATURE || '0.1' }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+            GITHUB_TOKEN=${{ secrets.DEPLOY_GITHUB_TOKEN }}
+            GITHUB_OWNER=${{ vars.GITHUB_OWNER }}
+            GITHUB_REPO=${{ vars.GITHUB_REPO }}
+            GIT_USER_NAME=${{ vars.GIT_USER_NAME || 'LangGraph Agent' }}
+            GIT_USER_EMAIL=${{ vars.GIT_USER_EMAIL || 'agent@langgraph.local' }}
+            WORKSPACE_DIR=/tmp/workspace
+            HOST=0.0.0.0
+            PORT=8000
+            MAX_ITERATIONS=${{ vars.MAX_ITERATIONS || '10' }}
+            RECURSION_LIMIT=${{ vars.RECURSION_LIMIT || '50' }}
+            ENVEOF
+
+            # ── Override image to use the GHCR image just built ──────────────
+            export COMPOSE_FILE=docker-compose.yml
+
+            # Log in to GHCR (needed to pull on VPS)
+            echo "${{ secrets.GITHUB_TOKEN }}" | \
+              docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            # Pull the new image
+            docker compose pull
+
+            # Restart with zero-downtime (recreate only changed containers)
+            docker compose up -d --remove-orphans
+
+            # Clean up old images
+            docker image prune -f
+
+            echo "Deployment complete — $(date -u)"
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "### Deployment Successful :white_check_mark:" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deployed commit \`${{ github.sha }}\` to VPS at \`${{ secrets.VPS_HOST }}\`." >> "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,5 @@
 """QA (Quality Assurance) agent."""
+
 from __future__ import annotations
 
 import logging
@@ -57,20 +58,32 @@ def create_qa_agent(llm):
         logger.info("QA agent processing task: %s", state.current_task)
 
         tools = [
-            clone_repository, get_diff, commit_changes, push_changes,
-            read_file, list_directory, create_file, run_command,
-            add_comment_to_pr, add_comment_to_issue, create_issue, update_issue, update_pull_request,
+            clone_repository,
+            get_diff,
+            commit_changes,
+            push_changes,
+            read_file,
+            list_directory,
+            create_file,
+            run_command,
+            add_comment_to_pr,
+            add_comment_to_issue,
+            create_issue,
+            update_issue,
+            update_pull_request,
         ]
         agent_llm = llm.bind_tools(tools)
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=_SYSTEM_PROMPT),
-            MessagesPlaceholder(variable_name="messages"),
-            HumanMessage(content=f"""
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                MessagesPlaceholder(variable_name="messages"),
+                HumanMessage(
+                    content=f"""
 Project goal: {state.project_goal}
 Workspace: {state.workspace_path}
-Current task: {state.current_task.model_dump() if state.current_task else 'None'}
-Developer implementation: {state.developer_output.get('implementation', 'Not yet implemented')}
+Current task: {state.current_task.model_dump() if state.current_task else "None"}
+Developer implementation: {state.developer_output.get("implementation", "Not yet implemented")}
 
 Please perform quality assurance:
 1. Review the implementation for correctness
@@ -82,8 +95,10 @@ Please perform quality assurance:
 7. Comment on the PR with your assessment (approve or request changes)
 
 Be thorough in your testing approach.
-"""),
-        ])
+"""
+                ),
+            ]
+        )
 
         messages = prompt.format_messages(messages=state.messages)
         response = await agent_llm.ainvoke(messages)

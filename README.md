@@ -174,6 +174,63 @@ docker-compose logs -f
 git pull && docker-compose up -d --build
 ```
 
+## CI/CD
+
+Two GitHub Actions workflows ship with this project.
+
+### CI (`ci.yml`) — runs on every push and pull request
+
+| Job | What it does |
+|-----|-------------|
+| **Lint** | `ruff check` + `ruff format --check` on `src/` and `tests/` |
+| **Test** | `pytest` on Python 3.11 and 3.12 with JUnit XML reports |
+| **Docker Build Check** | Builds the Docker image (no push) to catch `Dockerfile` errors early |
+
+### CD (`cd.yml`) — runs on push to `main` or a published release
+
+| Job | What it does |
+|-----|-------------|
+| **Build & Push** | Builds a multi-arch (`amd64`/`arm64`) image and pushes to GHCR as `ghcr.io/<owner>/<repo>:latest` (and `sha-<short>`) |
+| **Deploy to VPS** | SSHes into your VPS, updates `.env`, pulls the new image, and runs `docker compose up -d` |
+
+The deploy job only runs when the repository variable `VPS_DEPLOY_ENABLED` is set to `true`.
+
+#### Required secrets & variables
+
+Configure these in **Settings → Secrets and variables → Actions** of your repository.
+
+**Secrets**
+
+| Secret | Description |
+|--------|-------------|
+| `VPS_HOST` | IP address or hostname of your VPS |
+| `VPS_USER` | SSH username (e.g. `ubuntu`) |
+| `VPS_SSH_KEY` | Private SSH key for the VPS user |
+| `VPS_PORT` | SSH port (optional, default `22`) |
+| `OPENAI_API_KEY` | OpenAI API key for the running container |
+| `ANTHROPIC_API_KEY` | Anthropic API key (optional) |
+| `DEPLOY_GITHUB_TOKEN` | GitHub PAT for the agents (repo + issues + PRs) |
+
+**Variables** (non-secret)
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `VPS_DEPLOY_ENABLED` | Set to `true` to enable VPS deployment | `false` |
+| `VPS_PROJECT_DIR` | Directory on VPS to deploy into | `$HOME/langgraph-poc` |
+| `LLM_PROVIDER` | `openai` or `anthropic` | `openai` |
+| `LLM_MODEL` | Model name | `gpt-4o` |
+| `GITHUB_OWNER` | GitHub org/username for agent tools | — |
+| `GITHUB_REPO` | Repository name for agent tools | — |
+
+#### Docker image tags
+
+Images are pushed to `ghcr.io/<owner>/<repo>` with the following tags:
+
+- `latest` — always points to the most recent `main` build
+- `main` — branch name tag
+- `sha-<8chars>` — immutable per-commit tag
+- `v1.0.0` (etc.) — semantic version tags created from GitHub releases
+
 ## License
 
 MIT

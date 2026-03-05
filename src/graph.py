@@ -1,8 +1,8 @@
 """LangGraph multi-agent orchestration graph."""
+
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -63,7 +63,6 @@ def build_graph() -> CompiledStateGraph:
     Returns:
         Compiled LangGraph state graph.
     """
-    settings = get_settings()
     llm = _create_llm()
 
     # Create agent node functions

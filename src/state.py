@@ -1,7 +1,8 @@
 """Shared state definitions for the multi-agent system."""
+
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Annotated, Any
 
 from langchain_core.messages import BaseMessage
@@ -9,8 +10,9 @@ from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 
-class AgentRole(str, Enum):
+class AgentRole(StrEnum):
     """Roles of agents in the multi-agent system."""
+
     ORCHESTRATOR = "orchestrator"
     ARCHITECT = "architect"
     DEVELOPER = "developer"
@@ -19,8 +21,9 @@ class AgentRole(str, Enum):
     DOCUMENTATION = "documentation"
 
 
-class TaskStatus(str, Enum):
+class TaskStatus(StrEnum):
     """Status of a task."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
@@ -30,6 +33,7 @@ class TaskStatus(str, Enum):
 
 class Task(BaseModel):
     """Represents a unit of work."""
+
     id: str
     title: str
     description: str

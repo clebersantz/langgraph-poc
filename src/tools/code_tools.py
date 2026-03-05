@@ -1,4 +1,5 @@
 """Code manipulation and execution tools for the multi-agent system."""
+
 from __future__ import annotations
 
 import logging
@@ -77,7 +78,11 @@ def create_file(path: str, content: str, overwrite: bool = False) -> dict[str, s
     try:
         file_path = Path(path)
         if file_path.exists() and not overwrite:
-            return {"path": str(file_path), "status": "exists", "error": "File exists and overwrite=False"}
+            return {
+                "path": str(file_path),
+                "status": "exists",
+                "error": "File exists and overwrite=False",
+            }
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
         logger.info("Created file: %s", file_path)
@@ -132,18 +137,22 @@ def list_directory(path: str, recursive: bool = False) -> dict[str, Any]:
         entries = []
         if recursive:
             for item in sorted(dir_path.rglob("*")):
-                entries.append({
-                    "name": str(item.relative_to(dir_path)),
-                    "type": "file" if item.is_file() else "dir",
-                    "size": item.stat().st_size if item.is_file() else None,
-                })
+                entries.append(
+                    {
+                        "name": str(item.relative_to(dir_path)),
+                        "type": "file" if item.is_file() else "dir",
+                        "size": item.stat().st_size if item.is_file() else None,
+                    }
+                )
         else:
             for item in sorted(dir_path.iterdir()):
-                entries.append({
-                    "name": item.name,
-                    "type": "file" if item.is_file() else "dir",
-                    "size": item.stat().st_size if item.is_file() else None,
-                })
+                entries.append(
+                    {
+                        "name": item.name,
+                        "type": "file" if item.is_file() else "dir",
+                        "size": item.stat().st_size if item.is_file() else None,
+                    }
+                )
         return {"path": str(dir_path), "entries": entries}
     except OSError as e:
         logger.error("Failed to list directory '%s': %s", path, e)

@@ -2,6 +2,9 @@ version: "3.9"
 
 services:
   langgraph-agents:
+    # DOCKER_IMAGE is set to the GHCR image in production (see CD workflow).
+    # When not set, docker-compose falls back to building locally.
+    image: ${DOCKER_IMAGE:-langgraph-multi-agent:latest}
     build:
       context: .
       dockerfile: Dockerfile

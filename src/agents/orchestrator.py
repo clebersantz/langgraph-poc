@@ -1,4 +1,5 @@
 """Project Manager / Orchestrator agent."""
+
 from __future__ import annotations
 
 import logging
@@ -6,8 +7,7 @@ import logging
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
-from src.config import get_settings
-from src.state import AgentRole, AgentState, Task, TaskStatus
+from src.state import AgentRole, AgentState
 from src.tools.github_tools import (
     add_comment_to_issue,
     close_issue,
@@ -55,10 +55,12 @@ def create_orchestrator_agent(llm):
         tools = [create_issue, list_issues, update_issue, close_issue, add_comment_to_issue]
         agent_llm = llm.bind_tools(tools)
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=_SYSTEM_PROMPT),
-            MessagesPlaceholder(variable_name="messages"),
-            HumanMessage(content=f"""
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                MessagesPlaceholder(variable_name="messages"),
+                HumanMessage(
+                    content=f"""
 Current project goal: {state.project_goal}
 Current iteration: {state.iteration_count}/{state.max_iterations}
 Tasks: {[t.model_dump() for t in state.tasks]}
@@ -74,8 +76,10 @@ Based on the current state, what should happen next?
 - If all tasks are complete, mark the project as done.
 
 Respond with your analysis and specify the next_agent (one of: architect, developer, qa, security, documentation, or DONE).
-"""),
-        ])
+"""
+                ),
+            ]
+        )
 
         messages = prompt.format_messages(messages=state.messages)
         response = await agent_llm.ainvoke(messages)
@@ -92,7 +96,9 @@ Respond with your analysis and specify the next_agent (one of: architect, develo
                 **state.model_dump(exclude={"messages"}),
                 "messages": [response],
                 "current_agent": AgentRole.ORCHESTRATOR,
-                "next_agent": AgentRole(next_agent) if next_agent and next_agent != "done" else None,
+                "next_agent": AgentRole(next_agent)
+                if next_agent and next_agent != "done"
+                else None,
                 "iteration_count": new_iteration,
                 "is_complete": is_complete,
             }

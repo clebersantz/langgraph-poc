@@ -1,4 +1,5 @@
 """GitHub integration tools for the multi-agent system."""
+
 from __future__ import annotations
 
 import logging
@@ -52,7 +53,12 @@ def create_issue(title: str, body: str, labels: list[str] | None = None) -> dict
             kwargs["labels"] = labels
         issue = repo.create_issue(**kwargs)
         logger.info("Created issue #%d: %s", issue.number, issue.title)
-        return {"number": issue.number, "title": issue.title, "url": issue.html_url, "state": issue.state}
+        return {
+            "number": issue.number,
+            "title": issue.title,
+            "url": issue.html_url,
+            "state": issue.state,
+        }
     except GithubException as e:
         logger.error("Failed to create issue: %s", e)
         return {"error": str(e)}
@@ -153,7 +159,12 @@ def update_issue(
         if labels is not None:
             kwargs["labels"] = labels
         issue.edit(**kwargs)
-        return {"number": issue.number, "title": issue.title, "state": issue.state, "url": issue.html_url}
+        return {
+            "number": issue.number,
+            "title": issue.title,
+            "state": issue.state,
+            "url": issue.html_url,
+        }
     except GithubException as e:
         logger.error("Failed to update issue #%d: %s", issue_number, e)
         return {"error": str(e)}

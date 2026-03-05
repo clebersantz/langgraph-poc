@@ -1,4 +1,5 @@
 """Security agent."""
+
 from __future__ import annotations
 
 import logging
@@ -62,20 +63,28 @@ def create_security_agent(llm):
         logger.info("Security agent processing task: %s", state.current_task)
 
         tools = [
-            read_file, list_directory, search_code, run_command,
-            create_issue, update_issue, add_comment_to_issue,
-            add_comment_to_pr, update_pull_request,
+            read_file,
+            list_directory,
+            search_code,
+            run_command,
+            create_issue,
+            update_issue,
+            add_comment_to_issue,
+            add_comment_to_pr,
+            update_pull_request,
         ]
         agent_llm = llm.bind_tools(tools)
 
-        prompt = ChatPromptTemplate.from_messages([
-            SystemMessage(content=_SYSTEM_PROMPT),
-            MessagesPlaceholder(variable_name="messages"),
-            HumanMessage(content=f"""
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                SystemMessage(content=_SYSTEM_PROMPT),
+                MessagesPlaceholder(variable_name="messages"),
+                HumanMessage(
+                    content=f"""
 Project goal: {state.project_goal}
 Workspace: {state.workspace_path}
-Current task: {state.current_task.model_dump() if state.current_task else 'None'}
-Implementation: {state.developer_output.get('implementation', 'Not yet implemented')}
+Current task: {state.current_task.model_dump() if state.current_task else "None"}
+Implementation: {state.developer_output.get("implementation", "Not yet implemented")}
 
 Please perform a comprehensive security review:
 1. Scan for hardcoded secrets and credentials
@@ -90,8 +99,10 @@ Please perform a comprehensive security review:
 10. Create GitHub issues for any security findings
 
 Provide a security assessment summary at the end.
-"""),
-        ])
+"""
+                ),
+            ]
+        )
 
         messages = prompt.format_messages(messages=state.messages)
         response = await agent_llm.ainvoke(messages)
