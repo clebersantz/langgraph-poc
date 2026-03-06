@@ -9,6 +9,7 @@ import re as _re
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from src.agents._tool_executor import sanitize_messages
 from src.state import AgentRole, AgentState
 
 logger = logging.getLogger(__name__)
@@ -79,7 +80,7 @@ Respond with your analysis and specify the next_agent (one of: architect, develo
             ]
         )
 
-        messages = prompt.format_messages(messages=state.messages)
+        messages = prompt.format_messages(messages=sanitize_messages(state.messages))
         response = await llm.ainvoke(messages)
 
         # Parse next agent from response
