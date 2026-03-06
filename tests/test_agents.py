@@ -369,3 +369,117 @@ class TestToolExecutionLoop:
         assert (
             "disk full" in tool_messages[0].content or "error" in tool_messages[0].content.lower()
         )
+
+    async def test_max_rounds_exhausted_strips_tool_calls(self, sample_state):
+        """When the tool loop hits _MAX_TOOL_ROUNDS the final response must not
+        contain tool_calls, preventing a 400 error on the next LLM call."""
+        from langchain_core.messages import AIMessage
+
+        from src.agents._tool_executor import _MAX_TOOL_ROUNDS
+        from src.agents.developer import create_developer_agent
+
+        tool_call = {
+            "name": "create_file",
+            "args": {"path": "/tmp/looping/main.py", "content": "x"},
+            "id": "call_loop1",
+            "type": "tool_call",
+        }
+        # Every ainvoke response keeps requesting a tool call — simulates a
+        # runaway loop that would previously exhaust _MAX_TOOL_ROUNDS and
+        # return an AIMessage with tool_calls still set.
+        looping_response = AIMessage(content="still working…", tool_calls=[tool_call])
+
+        llm = MagicMock()
+        bound_llm = AsyncMock()
+        bound_llm.ainvoke.return_value = looping_response
+        llm.bind_tools.return_value = bound_llm
+
+        node = create_developer_agent(llm)
+        result = await node(sample_state)
+
+        # The agent must not store an AIMessage with tool_calls.
+        assert not getattr(result.messages[-1] if result.messages else None, "tool_calls", None), (
+            "Final message stored in state must not have tool_calls"
+        )
+        # LLM was called exactly _MAX_TOOL_ROUNDS + 1 times (initial + one per round).
+        assert bound_llm.ainvoke.call_count == _MAX_TOOL_ROUNDS + 1
+
+
+# ---------------------------------------------------------------------------
+# sanitize_messages tests
+# ---------------------------------------------------------------------------
+
+
+class TestSanitizeMessages:
+    """Tests for the sanitize_messages helper."""
+
+    def test_empty_list_is_returned_unchanged(self):
+        from src.agents._tool_executor import sanitize_messages
+
+        assert sanitize_messages([]) == []
+
+    def test_messages_without_tool_calls_pass_through(self):
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from src.agents._tool_executor import sanitize_messages
+
+        msgs = [HumanMessage(content="hi"), AIMessage(content="hello")]
+        assert sanitize_messages(msgs) == msgs
+
+    def test_covered_tool_calls_are_kept(self):
+        from langchain_core.messages import AIMessage, ToolMessage
+
+        from src.agents._tool_executor import sanitize_messages
+
+        tool_call = {"name": "f", "args": {}, "id": "call_1", "type": "tool_call"}
+        ai_msg = AIMessage(content="", tool_calls=[tool_call])
+        tool_msg = ToolMessage(content="ok", tool_call_id="call_1")
+
+        result = sanitize_messages([ai_msg, tool_msg])
+        assert len(result) == 2
+
+    def test_orphaned_tool_calls_are_dropped(self):
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from src.agents._tool_executor import sanitize_messages
+
+        tool_call = {"name": "f", "args": {}, "id": "call_orphan", "type": "tool_call"}
+        orphan = AIMessage(content="working…", tool_calls=[tool_call])
+        human = HumanMessage(content="what next?")
+
+        result = sanitize_messages([orphan, human])
+        # The orphaned AIMessage must be dropped; the HumanMessage must remain.
+        assert orphan not in result
+        assert human in result
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_uses_sanitize_messages(self, sample_state):
+        """Orchestrator must sanitize state.messages before sending to the LLM."""
+        from langchain_core.messages import AIMessage
+
+        from src.agents.orchestrator import create_orchestrator_agent
+
+        tool_call = {"name": "f", "args": {}, "id": "call_orch1", "type": "tool_call"}
+        orphan_ai = AIMessage(content="", tool_calls=[tool_call])
+
+        # State with an orphaned tool-call message (simulates max-rounds exhaustion
+        # from a previous developer run that was NOT yet fixed).
+        state = sample_state.model_copy(update={"messages": [orphan_ai]})
+
+        captured: list = []
+
+        async def fake_ainvoke(messages, **_):
+            captured.append(messages)
+            return AIMessage(content='{"next_agent": "DONE"}')
+
+        llm = MagicMock()
+        llm.ainvoke = fake_ainvoke
+
+        node = create_orchestrator_agent(llm)
+        await node(state)
+
+        sent = captured[0]
+        # None of the messages forwarded to the LLM should have uncovered tool_calls.
+        for msg in sent:
+            tc = getattr(msg, "tool_calls", None)
+            assert not tc, f"Orphaned tool_calls were not stripped: {msg}"

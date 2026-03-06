@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,49 @@ def extract_files_from_content(content: str, workspace_path: str) -> list[str]:
     return created
 
 
+def sanitize_messages(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """Remove assistant messages whose tool_calls have no following ToolMessages.
+
+    The OpenAI / Azure OpenAI API requires that every AIMessage that contains
+    ``tool_calls`` is immediately followed by a ToolMessage for each call id.
+    When messages from previous agent runs are re-used as conversation history
+    (e.g. passed through ``state.messages`` into the orchestrator prompt) this
+    invariant can be violated, causing a 400 "invalid_request_error".
+
+    This helper filters out any AIMessage-with-tool_calls whose ids are not
+    covered by a subsequent ToolMessage, making the history safe to send.
+
+    Args:
+        messages: Arbitrary list of LangChain ``BaseMessage`` objects.
+
+    Returns:
+        A new list with orphaned tool-call assistant messages removed.
+    """
+    if not messages:
+        return messages
+
+    # Collect all tool_call_ids that ARE covered by a ToolMessage.
+    covered_ids: set[str] = set()
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            covered_ids.add(msg.tool_call_id)
+
+    sanitized: list[BaseMessage] = []
+    for msg in messages:
+        tool_calls = getattr(msg, "tool_calls", None)
+        if tool_calls:
+            call_ids = {tc["id"] for tc in tool_calls}
+            if not call_ids.issubset(covered_ids):
+                logger.warning(
+                    "Dropping assistant message with uncovered tool_call_ids %s "
+                    "to prevent API 400 error.",
+                    call_ids - covered_ids,
+                )
+                continue
+        sanitized.append(msg)
+    return sanitized
+
+
 async def run_tool_loop(
     agent_llm: Any,
     tools: list[Any],
@@ -146,5 +189,17 @@ async def run_tool_loop(
 
         messages = messages + tool_msgs
         response = await agent_llm.ainvoke(messages)
+
+    # If the loop was exhausted and the LLM is still requesting tool calls,
+    # strip them from the response before returning.  An AIMessage with
+    # tool_calls that is stored in state.messages and later re-sent to the LLM
+    # (without the matching ToolMessages) causes a 400 "invalid_request_error".
+    if getattr(response, "tool_calls", None):
+        logger.warning(
+            "Tool loop reached maximum rounds (%d) with pending tool calls; "
+            "stripping tool_calls from final response to prevent API 400 error.",
+            _MAX_TOOL_ROUNDS,
+        )
+        response = AIMessage(content=response.content or "")
 
     return response
